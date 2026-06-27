@@ -14,16 +14,27 @@ const OKX_CREDENTIAL = {
   domain: "okx.com",
   sourceCookieNames: ["token"],
 };
+const CACHED_SESSION = {
+  user: { id: "user-1", email: "cached@example.com" },
+  roles: ["user"],
+};
 
 let server;
 let cleanup = () => {};
 
 try {
   installDomGlobals();
-  installServiceMocks();
   server = await createTestServer();
+
+  installServiceMocks();
   cleanup = await runOkxOnDemandCaptureTest(server);
+  cleanup();
   console.log("✓ OKX 首次创建会按需抓取并提交 authorization 凭证");
+
+  installServiceMocks();
+  cleanup = await runCachedPopupStartupTest(server);
+  cleanup();
+  console.log("✓ 有本地会话快照时，插件首屏不再阻塞在验证登录态");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
@@ -52,6 +63,10 @@ function installDomGlobals() {
 function installServiceMocks() {
   globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__ = {
     createAuthMethod: createMock(),
+    deleteAuthMethod: createMock(),
+    getCurrentSession: createMock(() => null),
+    listAllAuthMethods: createMock(() => []),
+    openLoginPage: createMock(),
     syncAuthMethod: createMock(),
   };
   globalThis.__ALPHAFOX_TOAST_MOCK__ = {
@@ -85,7 +100,7 @@ async function createTestServer() {
 async function runOkxOnDemandCaptureTest(testServer) {
   const storedCredentials = {};
   const sendMessage = createMock((message) => handleRuntimeMessage(message, storedCredentials));
-  globalThis.chrome = { runtime: { sendMessage }, tabs: { create: createMock() } };
+  globalThis.chrome = createChromeMock({ sendMessage });
 
   const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
     import("react"),
@@ -111,6 +126,50 @@ async function runOkxOnDemandCaptureTest(testServer) {
   await waitFor(() => assertCaptureWasRequested(sendMessage.calls));
   await waitFor(() => assertCreateWasSubmitted());
   assert.equal(onMethodsChanged.calls.length, 1);
+
+  return testingLibrary.cleanup;
+}
+
+async function runCachedPopupStartupTest(testServer) {
+  const sessionRequest = createDeferred();
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(
+    () => sessionRequest.promise
+  );
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAllAuthMethods = createMock(() => []);
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+    storageData: {
+      "alphafox:popupState": {
+        session: CACHED_SESSION,
+        authMethods: [],
+        savedAt: "2026-06-28T10:00:00.000Z",
+      },
+    },
+  });
+
+  const [{ default: React }, testingLibrary, popupModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/popup.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(React.createElement(popupModule.default));
+
+  await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
+  assert.equal(screen.queryByText("正在检测 AlphaFox 登录态..."), null);
+  assert.ok(screen.getByText("正在验证 AlphaFox 登录态..."));
+
+  await testingLibrary.act(async () => {
+    sessionRequest.resolve(CACHED_SESSION);
+    await Promise.resolve();
+  });
+  await waitFor(() => {
+    assert.equal(
+      globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAllAuthMethods.calls.length,
+      1
+    );
+  });
 
   return testingLibrary.cleanup;
 }
@@ -160,6 +219,45 @@ function getExchangeCard(screen, label) {
   return card;
 }
 
+function createChromeMock({ sendMessage, storageData = {} }) {
+  return {
+    runtime: { sendMessage },
+    storage: {
+      local: {
+        get: createMock((keys) => readStorageKeys(storageData, keys)),
+        remove: createMock((keys) => removeStorageKeys(storageData, keys)),
+        set: createMock((values) => Object.assign(storageData, values)),
+      },
+    },
+    tabs: { create: createMock() },
+  };
+}
+
+function readStorageKeys(storageData, keys) {
+  if (typeof keys === "string") {
+    return { [keys]: storageData[keys] };
+  }
+  if (Array.isArray(keys)) {
+    return Object.fromEntries(keys.map((key) => [key, storageData[key]]));
+  }
+  if (keys && typeof keys === "object") {
+    return Object.fromEntries(
+      Object.entries(keys).map(([key, defaultValue]) => [
+        key,
+        storageData[key] ?? defaultValue,
+      ])
+    );
+  }
+  return { ...storageData };
+}
+
+function removeStorageKeys(storageData, keys) {
+  const normalizedKeys = Array.isArray(keys) ? keys : [keys];
+  for (const key of normalizedKeys) {
+    delete storageData[key];
+  }
+}
+
 function createMock(implementation = () => undefined) {
   const calls = [];
   const fn = (...args) => {
@@ -168,4 +266,12 @@ function createMock(implementation = () => undefined) {
   };
   fn.calls = calls;
   return fn;
+}
+
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((nextResolve) => {
+    resolve = nextResolve;
+  });
+  return { promise, resolve };
 }

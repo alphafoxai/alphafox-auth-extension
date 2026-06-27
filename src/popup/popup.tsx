@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircleIcon, ExternalLinkIcon, LoaderIcon, RefreshCwIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { AuthService } from "@/services/auth";
+import { PopupStateCache } from "@/services/popup-cache";
 import type { ExchangeAuthMethod, Session } from "@/types/auth";
 import { Alert } from "./components/alert";
 import { AuthMethodsList } from "./components/auth-methods-list";
@@ -26,34 +27,95 @@ const EMPTY_ALERT: AlertState = {
 
 export default function Popup() {
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
   const [authMethods, setAuthMethods] = useState<readonly ExchangeAuthMethod[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [sessionVerified, setSessionVerified] = useState(false);
   const [actionLoading, setActionLoading] = useState<number | null>(null);
   const [alert, setAlert] = useState<AlertState>(EMPTY_ALERT);
 
-  useEffect(() => {
-    void refreshSessionAndMethods();
+  const applySession = useCallback((nextSession: Session | null): void => {
+    sessionRef.current = nextSession;
+    setSession(nextSession);
   }, []);
 
-  async function refreshSessionAndMethods(): Promise<void> {
-    setError("");
-    setLoading(true);
-    try {
-      const nextSession = await AuthService.getCurrentSession();
-      setSession(nextSession);
-      setAuthMethods(nextSession ? await AuthService.listAllAuthMethods() : []);
-    } catch (err) {
-      setError(readErrorMessage(err));
-      setSession(null);
-      setAuthMethods([]);
-    } finally {
-      setLoading(false);
+  const showLoggedOutState = useCallback((): void => {
+    applySession(null);
+    setAuthMethods([]);
+    setSessionVerified(false);
+  }, [applySession]);
+
+  const clearLocalSession = useCallback(async (): Promise<void> => {
+    showLoggedOutState();
+    await PopupStateCache.clear();
+  }, [showLoggedOutState]);
+
+  const refreshAuthMethodsForSession = useCallback(
+    async (nextSession: Session): Promise<void> => {
+      const methods = await AuthService.listAllAuthMethods();
+      setAuthMethods(methods);
+      await PopupStateCache.write(nextSession, methods);
+    },
+    []
+  );
+
+  const refreshSessionAndMethods = useCallback(
+    async (options: { readonly keepExistingSessionOnError?: boolean } = {}): Promise<void> => {
+      setError("");
+      setLoading(true);
+
+      let nextSession: Session | null;
+      try {
+        nextSession = await AuthService.getCurrentSession();
+      } catch (error) {
+        setError(readErrorMessage(error));
+        if (!options.keepExistingSessionOnError && !sessionRef.current) {
+          showLoggedOutState();
+        }
+        setLoading(false);
+        return;
+      }
+
+      if (!nextSession) {
+        await clearLocalSession();
+        setLoading(false);
+        return;
+      }
+
+      applySession(nextSession);
+      setSessionVerified(true);
+      try {
+        await refreshAuthMethodsForSession(nextSession);
+      } catch (error) {
+        setError(readErrorMessage(error));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [applySession, clearLocalSession, refreshAuthMethodsForSession, showLoggedOutState]
+  );
+
+  const initializePopup = useCallback(async (): Promise<void> => {
+    const cachedState = await PopupStateCache.read();
+    if (cachedState) {
+      applySession(cachedState.session);
+      setAuthMethods(cachedState.authMethods);
+      setSessionVerified(false);
     }
-  }
+    await refreshSessionAndMethods({ keepExistingSessionOnError: Boolean(cachedState) });
+  }, [applySession, refreshSessionAndMethods]);
+
+  useEffect(() => {
+    void initializePopup();
+  }, [initializePopup]);
 
   async function refreshAuthMethods(): Promise<void> {
-    setAuthMethods(await AuthService.listAllAuthMethods());
+    const currentSession = sessionRef.current;
+    if (!currentSession) {
+      return;
+    }
+    await refreshAuthMethodsForSession(currentSession);
   }
 
   function showAlert(nextAlert: Omit<AlertState, "show">) {
@@ -115,6 +177,7 @@ export default function Popup() {
               loading={loading}
               onOpenAlphaFox={AuthService.openLoginPage}
               onRefresh={() => void refreshSessionAndMethods()}
+              verified={sessionVerified}
             />
             {error ? <InlineError message={error} /> : null}
             <ExchangeCredentialsPanel
@@ -149,11 +212,13 @@ function Header({
   loading,
   onOpenAlphaFox,
   onRefresh,
+  verified,
 }: {
   readonly email: string;
   readonly loading: boolean;
   readonly onOpenAlphaFox: () => void;
   readonly onRefresh: () => void;
+  readonly verified: boolean;
 }) {
   return (
     <header className="rounded-3xl border border-white/80 bg-white/90 p-4 shadow-sm backdrop-blur">
@@ -161,7 +226,9 @@ function Header({
         <div className="flex min-w-0 items-center gap-3">
           <img src="/logo-text.svg" alt="AlphaFox 灵狐量化" className="h-10 shrink-0" />
           <div className="min-w-0">
-            <p className="text-xs font-medium text-orange-600">已自动登录插件</p>
+            <p className="text-xs font-medium text-orange-600">
+              {readHeaderStatusText({ loading, verified })}
+            </p>
             <p className="truncate text-sm font-semibold text-slate-950" title={email}>
               {email}
             </p>
@@ -191,6 +258,25 @@ function Header({
       </div>
     </header>
   );
+}
+
+function readHeaderStatusText({
+  loading,
+  verified,
+}: {
+  readonly loading: boolean;
+  readonly verified: boolean;
+}): string {
+  if (loading && !verified) {
+    return "正在验证 AlphaFox 登录态...";
+  }
+  if (loading) {
+    return "正在刷新插件数据...";
+  }
+  if (!verified) {
+    return "使用上次登录快照";
+  }
+  return "已自动登录插件";
 }
 
 function LoadingState() {
