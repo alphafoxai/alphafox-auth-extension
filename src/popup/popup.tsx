@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AlertCircleIcon, ExternalLinkIcon, LoaderIcon, RefreshCwIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { EXCHANGE_CONFIGS, type ExchangeKey } from "@/config/exchanges";
 import { AuthService } from "@/services/auth";
 import { PopupStateCache } from "@/services/popup-cache";
 import type { ExchangeAuthMethod, Session } from "@/types/auth";
@@ -18,6 +19,9 @@ interface AlertState {
   readonly onConfirm?: () => void;
 }
 
+type AuthMethodLoadStatus = "checking" | "loaded" | "error";
+type AuthMethodStatusMap = Partial<Record<ExchangeKey, AuthMethodLoadStatus>>;
+
 const EMPTY_ALERT: AlertState = {
   show: false,
   title: "",
@@ -29,6 +33,8 @@ export default function Popup() {
   const [session, setSession] = useState<Session | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const [authMethods, setAuthMethods] = useState<readonly ExchangeAuthMethod[]>([]);
+  const authMethodsRef = useRef<readonly ExchangeAuthMethod[]>([]);
+  const [authMethodStatus, setAuthMethodStatus] = useState<AuthMethodStatusMap>({});
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [sessionVerified, setSessionVerified] = useState(false);
@@ -40,11 +46,38 @@ export default function Popup() {
     setSession(nextSession);
   }, []);
 
+  const applyAuthMethods = useCallback((methods: readonly ExchangeAuthMethod[]): void => {
+    const sortedMethods = [...methods].sort(compareMethodUpdatedAtDesc);
+    authMethodsRef.current = sortedMethods;
+    setAuthMethods(sortedMethods);
+  }, []);
+
+  const setExchangeStatus = useCallback(
+    (exchange: ExchangeKey, status: AuthMethodLoadStatus): void => {
+      setAuthMethodStatus((currentStatus) => ({
+        ...currentStatus,
+        [exchange]: status,
+      }));
+    },
+    []
+  );
+
   const showLoggedOutState = useCallback((): void => {
     applySession(null);
-    setAuthMethods([]);
+    applyAuthMethods([]);
+    setAuthMethodStatus({});
     setSessionVerified(false);
-  }, [applySession]);
+  }, [applyAuthMethods, applySession]);
+
+  const applyExchangeAuthMethods = useCallback(
+    (exchange: ExchangeKey, methods: readonly ExchangeAuthMethod[]): void => {
+      applyAuthMethods([
+        ...authMethodsRef.current.filter((method) => method.exchange !== exchange),
+        ...methods,
+      ]);
+    },
+    [applyAuthMethods]
+  );
 
   const clearLocalSession = useCallback(async (): Promise<void> => {
     showLoggedOutState();
@@ -53,11 +86,29 @@ export default function Popup() {
 
   const refreshAuthMethodsForSession = useCallback(
     async (nextSession: Session): Promise<void> => {
-      const methods = await AuthService.listAllAuthMethods();
-      setAuthMethods(methods);
-      await PopupStateCache.write(nextSession, methods);
+      setAuthMethodStatus(markAllExchanges("checking"));
+      const failures: string[] = [];
+
+      await Promise.all(
+        EXCHANGE_CONFIGS.map(async (config) => {
+          try {
+            const methods = await AuthService.listAuthMethods(config.key);
+            applyExchangeAuthMethods(config.key, methods);
+            setExchangeStatus(config.key, "loaded");
+          } catch (error) {
+            failures.push(`${config.label}: ${readErrorMessage(error)}`);
+            setExchangeStatus(config.key, "error");
+          }
+        })
+      );
+
+      if (failures.length > 0) {
+        throw new Error(`刷新 AlphaFox 凭证失败：${failures.join("；")}`);
+      }
+
+      await PopupStateCache.write(nextSession, authMethodsRef.current);
     },
-    []
+    [applyExchangeAuthMethods, setExchangeStatus]
   );
 
   const refreshSessionAndMethods = useCallback(
@@ -100,11 +151,12 @@ export default function Popup() {
     const cachedState = await PopupStateCache.read();
     if (cachedState) {
       applySession(cachedState.session);
-      setAuthMethods(cachedState.authMethods);
+      applyAuthMethods(cachedState.authMethods);
+      setAuthMethodStatus(markAllExchanges("loaded"));
       setSessionVerified(false);
     }
     await refreshSessionAndMethods({ keepExistingSessionOnError: Boolean(cachedState) });
-  }, [applySession, refreshSessionAndMethods]);
+  }, [applyAuthMethods, applySession, refreshSessionAndMethods]);
 
   useEffect(() => {
     void initializePopup();
@@ -181,6 +233,7 @@ export default function Popup() {
             />
             {error ? <InlineError message={error} /> : null}
             <ExchangeCredentialsPanel
+              authMethodStatus={authMethodStatus}
               authMethods={authMethods}
               onMethodsChanged={refreshAuthMethods}
             />
@@ -205,6 +258,12 @@ export default function Popup() {
       </div>
     </main>
   );
+}
+
+function markAllExchanges(status: AuthMethodLoadStatus): AuthMethodStatusMap {
+  return Object.fromEntries(
+    EXCHANGE_CONFIGS.map((config) => [config.key, status])
+  ) as AuthMethodStatusMap;
 }
 
 function Header({
@@ -299,4 +358,11 @@ function InlineError({ message }: { readonly message: string }) {
 
 function readErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function compareMethodUpdatedAtDesc(
+  left: ExchangeAuthMethod,
+  right: ExchangeAuthMethod
+): number {
+  return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
 }

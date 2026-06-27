@@ -18,6 +18,14 @@ const CACHED_SESSION = {
   user: { id: "user-1", email: "cached@example.com" },
   roles: ["user"],
 };
+const BINANCE_METHOD = {
+  id: 101,
+  exchange: "binance",
+  authType: "cookie_csrf",
+  credentialMasked: "p20t...csrf",
+  isActive: true,
+  updatedAt: "2026-06-28T10:00:00.000Z",
+};
 
 let server;
 let cleanup = () => {};
@@ -35,6 +43,11 @@ try {
   cleanup = await runCachedPopupStartupTest(server);
   cleanup();
   console.log("✓ 有本地会话快照时，插件首屏不再阻塞在验证登录态");
+
+  installServiceMocks();
+  cleanup = await runProgressiveAuthMethodsStartupTest(server);
+  cleanup();
+  console.log("✓ Binance active 凭证检查会先于其它交易所增量更新");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
@@ -65,6 +78,7 @@ function installServiceMocks() {
     createAuthMethod: createMock(),
     deleteAuthMethod: createMock(),
     getCurrentSession: createMock(() => null),
+    listAuthMethods: createMock(() => []),
     listAllAuthMethods: createMock(() => []),
     openLoginPage: createMock(),
     syncAuthMethod: createMock(),
@@ -135,7 +149,7 @@ async function runCachedPopupStartupTest(testServer) {
   globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(
     () => sessionRequest.promise
   );
-  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAllAuthMethods = createMock(() => []);
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAuthMethods = createMock(() => []);
   globalThis.chrome = createChromeMock({
     sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
     storageData: {
@@ -166,9 +180,64 @@ async function runCachedPopupStartupTest(testServer) {
   });
   await waitFor(() => {
     assert.equal(
-      globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAllAuthMethods.calls.length,
-      1
+      globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAuthMethods.calls.length,
+      5
     );
+  });
+
+  return testingLibrary.cleanup;
+}
+
+async function runProgressiveAuthMethodsStartupTest(testServer) {
+  const pendingMethods = {
+    binance: createDeferred(),
+    okx: createDeferred(),
+    bitget: createDeferred(),
+    bybit: createDeferred(),
+    gate: createDeferred(),
+  };
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(
+    () => CACHED_SESSION
+  );
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAuthMethods = createMock(
+    (exchange) => pendingMethods[exchange].promise
+  );
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+  });
+
+  const [{ default: React }, testingLibrary, popupModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/popup.tsx"),
+  ]);
+  const { render, screen, waitFor, within } = testingLibrary;
+
+  render(React.createElement(popupModule.default));
+
+  await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
+  let binanceCard = getExchangeCard(screen, "Binance");
+  assert.equal(
+    within(binanceCard).queryByRole("button", { name: "首次创建" }),
+    null
+  );
+  assert.ok(within(binanceCard).getByRole("button", { name: "检查中" }));
+
+  await testingLibrary.act(async () => {
+    pendingMethods.binance.resolve([BINANCE_METHOD]);
+    await Promise.resolve();
+  });
+  await waitFor(() => {
+    binanceCard = getExchangeCard(screen, "Binance");
+    assert.ok(within(binanceCard).getByRole("button", { name: "同步最新" }));
+  });
+
+  await testingLibrary.act(async () => {
+    pendingMethods.okx.resolve([]);
+    pendingMethods.bitget.resolve([]);
+    pendingMethods.bybit.resolve([]);
+    pendingMethods.gate.resolve([]);
+    await Promise.resolve();
   });
 
   return testingLibrary.cleanup;
@@ -214,7 +283,10 @@ function assertCreateWasSubmitted() {
 }
 
 function getExchangeCard(screen, label) {
-  const card = screen.getByText(label).closest("article");
+  const card = screen
+    .getAllByText(label)
+    .map((element) => element.closest("article"))
+    .find(Boolean);
   assert.ok(card, `未找到 ${label} 交易所卡片`);
   return card;
 }

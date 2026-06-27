@@ -21,14 +21,18 @@ import { AuthService } from "@/services/auth";
 import type { AuthMethodInput, ExchangeAuthMethod } from "@/types/auth";
 
 interface ExchangeCredentialsPanelProps {
+  readonly authMethodStatus?: AuthMethodStatusMap;
   readonly authMethods: readonly ExchangeAuthMethod[];
   readonly onMethodsChanged: () => Promise<void>;
 }
 
 type CredentialMap = Partial<Record<ExchangeKey, ExchangeCredential>>;
 type MutationMode = "create" | "sync";
+type AuthMethodLoadStatus = "checking" | "loaded" | "error";
+type AuthMethodStatusMap = Partial<Record<ExchangeKey, AuthMethodLoadStatus>>;
 
 export function ExchangeCredentialsPanel({
+  authMethodStatus,
   authMethods,
   onMethodsChanged,
 }: ExchangeCredentialsPanelProps) {
@@ -53,6 +57,7 @@ export function ExchangeCredentialsPanel({
       <div className="grid gap-3 sm:grid-cols-2">
         {EXCHANGE_CONFIGS.map((config) => (
           <ExchangeCard
+            authMethodStatus={readAuthMethodStatus(authMethodStatus, config.key)}
             configKey={config.key}
             credential={credentialState.credentials[config.key]}
             existingMethods={methodsByExchange[config.key] ?? []}
@@ -194,12 +199,14 @@ function RefreshStatusBar({
 }
 
 function ExchangeCard({
+  authMethodStatus,
   configKey,
   credential,
   existingMethods,
   mutating,
   onSubmit,
 }: {
+  readonly authMethodStatus: AuthMethodLoadStatus;
   readonly configKey: ExchangeKey;
   readonly credential?: ExchangeCredential;
   readonly existingMethods: readonly ExchangeAuthMethod[];
@@ -211,13 +218,19 @@ function ExchangeCard({
 
   return (
     <article className="flex min-h-[218px] flex-col rounded-2xl border bg-white/90 p-4 shadow-sm transition-shadow hover:shadow-md">
-      <ExchangeCardHeader configKey={configKey} hasExistingMethod={hasExistingMethod} />
+      <ExchangeCardHeader
+        authMethodStatus={authMethodStatus}
+        configKey={configKey}
+        hasExistingMethod={hasExistingMethod}
+      />
       <ExchangeCardBody
+        authMethodStatus={authMethodStatus}
         credential={credential}
         existingMethods={existingMethods}
         help={config.credentialHelp}
       />
       <ExchangeCardActions
+        authMethodStatus={authMethodStatus}
         configKey={configKey}
         hasExistingMethod={hasExistingMethod}
         mutating={mutating}
@@ -228,9 +241,11 @@ function ExchangeCard({
 }
 
 function ExchangeCardHeader({
+  authMethodStatus,
   configKey,
   hasExistingMethod,
 }: {
+  readonly authMethodStatus: AuthMethodLoadStatus;
   readonly configKey: ExchangeKey;
   readonly hasExistingMethod: boolean;
 }) {
@@ -252,16 +267,18 @@ function ExchangeCardHeader({
           <span className="block text-xs text-slate-500">{config.authLabel}</span>
         </span>
       </button>
-      <StatusPill active={hasExistingMethod} />
+      <StatusPill active={hasExistingMethod} status={authMethodStatus} />
     </div>
   );
 }
 
 function ExchangeCardBody({
+  authMethodStatus,
   credential,
   existingMethods,
   help,
 }: {
+  readonly authMethodStatus: AuthMethodLoadStatus;
   readonly credential?: ExchangeCredential;
   readonly existingMethods: readonly ExchangeAuthMethod[];
   readonly help: string;
@@ -271,6 +288,8 @@ function ExchangeCardBody({
       {credential ? <CredentialPreview credential={credential} /> : <MissingCredential help={help} />}
       {existingMethods.length > 0 ? (
         <ExistingMethodSummary methods={existingMethods} />
+      ) : authMethodStatus !== "loaded" ? (
+        <AuthMethodStatusMessage status={authMethodStatus} />
       ) : (
         <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
           AlphaFox 暂无该交易所凭证，请先创建。
@@ -281,16 +300,22 @@ function ExchangeCardBody({
 }
 
 function ExchangeCardActions({
+  authMethodStatus,
   configKey,
   hasExistingMethod,
   mutating,
   onSubmit,
 }: {
+  readonly authMethodStatus: AuthMethodLoadStatus;
   readonly configKey: ExchangeKey;
   readonly hasExistingMethod: boolean;
   readonly mutating: string | null;
   readonly onSubmit: (exchange: ExchangeKey, mode: MutationMode) => Promise<void>;
 }) {
+  if (!hasExistingMethod && authMethodStatus !== "loaded") {
+    return <CheckingAction status={authMethodStatus} />;
+  }
+
   if (!hasExistingMethod) {
     return (
       <CreateOnlyAction
@@ -316,6 +341,16 @@ function ExchangeCardActions({
         mutating={mutating}
         onSubmit={onSubmit}
       />
+    </div>
+  );
+}
+
+function CheckingAction({ status }: { readonly status: AuthMethodLoadStatus }) {
+  return (
+    <div className="mt-4">
+      <Button className="w-full" disabled loading={status === "checking"} size="sm" variant="outline">
+        {status === "checking" ? "检查中" : "检查失败"}
+      </Button>
     </div>
   );
 }
@@ -433,15 +468,45 @@ function MissingCredential({ help }: { readonly help: string }) {
   );
 }
 
-function StatusPill({ active }: { readonly active: boolean }) {
+function AuthMethodStatusMessage({ status }: { readonly status: AuthMethodLoadStatus }) {
+  if (status === "checking") {
+    return (
+      <p className="rounded-xl bg-orange-50 px-3 py-2 text-xs text-orange-700">
+        正在检查 AlphaFox 是否已有该交易所 active 凭证...
+      </p>
+    );
+  }
+
+  return (
+    <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">
+      AlphaFox 凭证检查失败，请点击右上角刷新重试。
+    </p>
+  );
+}
+
+function StatusPill({
+  active,
+  status,
+}: {
+  readonly active: boolean;
+  readonly status: AuthMethodLoadStatus;
+}) {
+  const pending = !active && status === "checking";
+  const failed = !active && status === "error";
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-        active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+        active
+          ? "bg-emerald-100 text-emerald-700"
+          : pending
+            ? "bg-orange-100 text-orange-700"
+            : failed
+              ? "bg-red-100 text-red-600"
+              : "bg-slate-100 text-slate-500"
       )}
     >
-      {active ? "已创建" : "未创建"}
+      {active ? "已创建" : pending ? "检查中" : failed ? "检查失败" : "未创建"}
     </span>
   );
 }
@@ -535,6 +600,13 @@ function isRuntimeError(value: unknown): value is { readonly ok: false; readonly
 
 function isCredentialMap(value: unknown): value is CredentialMap {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function readAuthMethodStatus(
+  statusMap: AuthMethodStatusMap | undefined,
+  exchange: ExchangeKey
+): AuthMethodLoadStatus {
+  return statusMap?.[exchange] ?? "loaded";
 }
 
 function isCaptureResponse(
