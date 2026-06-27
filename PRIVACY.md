@@ -4,11 +4,11 @@
 
 ## Overview
 
-AlphaFox Auth Sync reads authentication cookies or tokens from supported cryptocurrency exchange websites and sends the selected credential to AlphaFox only after the user chooses create or sync in the popup.
+AlphaFox Auth Sync reads Binance `cookie_csrf` authentication data and sends the selected credential to AlphaFox only after the user chooses create or sync in the popup.
 
 ## Data We Collect
 
-- Supported exchange cookies or session tokens required by AlphaFox Signal Center.
+- Binance `p20t` Cookie and CSRF request header required by AlphaFox Signal Center.
 - AlphaFox web session status from `https://alphafox.app/api/auth/session`.
 - Local metadata such as capture time, exchange domain, and credential type.
 
@@ -17,13 +17,15 @@ AlphaFox Auth Sync reads authentication cookies or tokens from supported cryptoc
 The data is used only to:
 
 - Detect whether the user is logged in to AlphaFox.
-- Create a first exchange credential in AlphaFox.
-- Sync a refreshed exchange credential to AlphaFox.
+- Create a first Binance credential in AlphaFox.
+- Sync a refreshed Binance credential to AlphaFox.
 - Display masked local status in the extension popup.
+
+The extension does not read or submit Binance `x_token`, and it does not request OKX, Bitget, Bybit, or Gate.io credential APIs.
 
 ## Local Storage
 
-The extension stores the latest detected exchange credential locally with Chrome `storage.local` so the popup can show and submit it. AlphaFox passwords are never stored by this extension.
+The extension stores the latest detected Binance credential locally with Chrome `storage.local` so the popup can show and submit it. AlphaFox passwords are never stored by this extension.
 
 ## Transmission
 
@@ -31,10 +33,10 @@ Credentials are transmitted over HTTPS to AlphaFox Web API endpoints under `http
 
 ## Permissions
 
-- `cookies`: read supported exchange cookies.
+- `cookies`: read supported Binance cookies.
 - `storage`: store the latest locally captured credential state.
-- `activeTab` / `tabs`: detect the current exchange tab when the user refreshes manually.
-- `webRequest`: observe supported exchange requests and capture CSRF headers when required.
+- `activeTab` / `tabs`: detect the current Binance tab when the user refreshes manually.
+- `webRequest`: observe supported Binance requests and capture CSRF headers.
 
 ## User Control
 
@@ -49,7 +51,7 @@ Users can:
 The extension interacts with:
 
 - AlphaFox (`alphafox.app`) for authentication status and credential sync.
-- Supported exchange websites only to read browser cookies from the user's own logged-in session.
+- Binance only to read browser cookies from the user's own logged-in session.
 
 ## Changes
 

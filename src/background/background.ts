@@ -141,8 +141,7 @@ async function saveCredential(credential: ExchangeCredential): Promise<void> {
 
 async function getStoredCredentials(): Promise<StoredCredentials> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.credentials);
-  const credentials = result[STORAGE_KEYS.credentials];
-  return isStoredCredentials(credentials) ? credentials : {};
+  return readStoredCredentials(result[STORAGE_KEYS.credentials]);
 }
 
 async function readStoredCsrfToken(): Promise<string | null> {
@@ -164,13 +163,16 @@ function isCsrfHeader(name: string): boolean {
   return ["csrftoken", "csrf-token", "x-csrf-token"].includes(name.toLowerCase());
 }
 
-function isStoredCredentials(value: unknown): value is StoredCredentials {
+function readStoredCredentials(value: unknown): StoredCredentials {
   if (!value || typeof value !== "object") {
-    return false;
+    return {};
   }
-  return Object.entries(value).every(([key, credential]) => {
-    return isExchangeKeyString(key) && isExchangeCredential(credential);
-  });
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([key, credential]) => {
+      return isExchangeKeyString(key) && isExchangeCredential(credential);
+    })
+  );
 }
 
 function isExchangeCredential(value: unknown): value is ExchangeCredential {
