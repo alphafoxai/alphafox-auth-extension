@@ -1,0 +1,135 @@
+/** @type {import('tailwindcss').Config} */
+const colors = require("tailwindcss/colors");
+
+module.exports = {
+  darkMode: ["class"],
+  content: ["./src/**/*.{ts,tsx}", "./src/app/**/*.{ts,tsx}"],
+  theme: {
+    fontFamily: {
+      sans: "var(--font-source-serif), sans-serif",
+      theo: "var(--font-theo), var(--font-inter), sans-serif",
+      inter: "var(--font-inter), sans-serif",
+    },
+    container: {
+      center: true,
+      padding: {
+        DEFAULT: "2rem",
+        xs: "0.75rem",
+        sm: "1rem",
+        md: "1.5rem",
+        lg: "2rem",
+        xl: "2.5rem",
+      },
+      screens: {
+        xs: "375px",
+        sm: "640px",
+        md: "768px",
+        lg: "1024px",
+        xl: "1280px",
+        "2xl": "1536px",
+        "3xl": "1920px",
+      },
+    },
+    extend: {
+      screens: {
+        "3xl": "1920px",
+      },
+      aspectRatio: {
+        "9/16": "9/16",
+        "12/16": "12/16",
+      },
+      width: {
+        128: "32rem",
+      },
+      maxWidth: {
+        128: "32rem",
+      },
+      fontSize: {
+        "2xs": ".65rem",
+        "3xs": "0.5rem",
+        "4xs": "0.225rem",
+      },
+      colors: {
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
+        binance: colors.yellow[500],
+        okx: colors.sky[500],
+        bitget: colors.blue[500],
+        bybit: colors.cyan[500],
+        gate: colors.indigo[500],
+        sidebar: {
+          DEFAULT: "hsl(var(--sidebar-background))",
+          foreground: "hsl(var(--sidebar-foreground))",
+          primary: "hsl(var(--sidebar-primary))",
+          "primary-foreground": "hsl(var(--sidebar-primary-foreground))",
+          accent: "hsl(var(--sidebar-accent))",
+          "accent-foreground": "hsl(var(--sidebar-accent-foreground))",
+          border: "hsl(var(--sidebar-border))",
+          ring: "hsl(var(--sidebar-ring))",
+        },
+      },
+      borderRadius: {
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
+      },
+      keyframes: {
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
+        },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
+        },
+        "color-change": {
+          "0%, 100%": { color: "#2dd4bf" },
+          "50%": { color: "#60a5fa" },
+        },
+        shine: {
+          "0%": { "background-position": "100%" },
+          "100%": { "background-position": "-100%" },
+        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
+        "color-change": "color-change 20s infinite",
+        "pulse-slow": "pulse 5s ease-in-out infinite",
+        shine: "shine 5s linear infinite",
+      },
+    },
+  },
+  plugins: [require("tailwindcss-animate"), require("@tailwindcss/typography")],
+};
