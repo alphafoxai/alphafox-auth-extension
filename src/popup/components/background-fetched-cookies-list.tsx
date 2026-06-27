@@ -34,6 +34,7 @@ export function ExchangeCredentialsPanel({
 }: ExchangeCredentialsPanelProps) {
   const credentialState = useStoredCredentials();
   const submission = useCredentialSubmission({
+    captureCredential: credentialState.captureExchangeCredential,
     credentials: credentialState.credentials,
     onMethodsChanged,
   });
@@ -47,7 +48,7 @@ export function ExchangeCredentialsPanel({
       <InstructionCard />
       <RefreshStatusBar
         fetching={credentialState.fetching}
-        onRefresh={credentialState.captureCurrentTab}
+        onRefresh={credentialState.captureAllExchanges}
       />
       <div className="grid gap-3 sm:grid-cols-2">
         {EXCHANGE_CONFIGS.map((config) => (
@@ -85,12 +86,12 @@ function useStoredCredentials() {
     setCredentials(isCredentialMap(response) ? response : {});
   }
 
-  async function captureCurrentTab(): Promise<void> {
+  async function captureAllExchanges(): Promise<void> {
     setFetching(true);
     try {
-      await requestCurrentTabCapture();
+      await requestAllExchangeCapture();
       await refreshCredentials();
-      toast.success("已刷新当前标签页交易所登录凭证");
+      toast.success("已扫描所有支持交易所登录凭证");
     } catch (error) {
       toast.error(readErrorMessage(error));
     } finally {
@@ -98,27 +99,32 @@ function useStoredCredentials() {
     }
   }
 
-  return { captureCurrentTab, credentials, fetching };
+  async function captureExchangeCredential(
+    exchange: ExchangeKey
+  ): Promise<ExchangeCredential | null> {
+    const captured = await requestExchangeCredentialCapture(exchange);
+    await refreshCredentials();
+    return captured;
+  }
+
+  return { captureAllExchanges, captureExchangeCredential, credentials, fetching };
 }
 
 function useCredentialSubmission({
+  captureCredential,
   credentials,
   onMethodsChanged,
 }: {
+  readonly captureCredential: (exchange: ExchangeKey) => Promise<ExchangeCredential | null>;
   readonly credentials: CredentialMap;
   readonly onMethodsChanged: () => Promise<void>;
 }) {
   const [mutating, setMutating] = useState<string | null>(null);
 
   async function submitCredential(exchange: ExchangeKey, mode: MutationMode) {
-    const credential = credentials[exchange];
-    if (!credential) {
-      toast.error("未读取到该交易所登录凭证，请先打开交易所网页登录后刷新。");
-      return;
-    }
-
     setMutating(`${mode}:${exchange}`);
     try {
+      const credential = await getSubmissionCredential(exchange);
       await submitAuthMethod(toAuthMethodInput(credential), mode);
       await onMethodsChanged();
       toast.success(mode === "create" ? "首次创建成功" : "同步成功");
@@ -127,6 +133,23 @@ function useCredentialSubmission({
     } finally {
       setMutating(null);
     }
+  }
+
+  async function getSubmissionCredential(exchange: ExchangeKey): Promise<ExchangeCredential> {
+    const stored = credentials[exchange];
+    if (stored) {
+      return stored;
+    }
+
+    const captured = await captureCredential(exchange);
+    if (captured) {
+      return captured;
+    }
+
+    const config = getExchangeConfig(exchange);
+    throw new Error(
+      `未读取到 ${config.label} 登录凭证。请确认已登录 ${config.label}，或重新打开 ${config.domains[0]} 后再点击立即刷新/重试。`
+    );
   }
 
   return { mutating, submitCredential };
@@ -161,7 +184,7 @@ function RefreshStatusBar({
     <div className="flex items-center justify-between rounded-xl border bg-white/85 px-4 py-3 shadow-sm">
       <div className="flex items-center gap-2 text-sm text-slate-600">
         <LiveDot />
-        <span>自动监听交易所请求，每 5 秒刷新面板</span>
+        <span>自动监听交易所请求，并每 5 秒刷新面板</span>
       </div>
       <Button size="sm" variant="outline" onClick={() => void onRefresh()} loading={fetching}>
         立即刷新
@@ -184,7 +207,6 @@ function ExchangeCard({
   readonly onSubmit: (exchange: ExchangeKey, mode: MutationMode) => Promise<void>;
 }) {
   const config = getExchangeConfig(configKey);
-  const hasCredential = Boolean(credential);
   const hasExistingMethod = existingMethods.length > 0;
 
   return (
@@ -197,7 +219,6 @@ function ExchangeCard({
       />
       <ExchangeCardActions
         configKey={configKey}
-        hasCredential={hasCredential}
         hasExistingMethod={hasExistingMethod}
         mutating={mutating}
         onSubmit={onSubmit}
@@ -261,25 +282,40 @@ function ExchangeCardBody({
 
 function ExchangeCardActions({
   configKey,
-  hasCredential,
   hasExistingMethod,
   mutating,
   onSubmit,
 }: {
   readonly configKey: ExchangeKey;
-  readonly hasCredential: boolean;
   readonly hasExistingMethod: boolean;
   readonly mutating: string | null;
   readonly onSubmit: (exchange: ExchangeKey, mode: MutationMode) => Promise<void>;
 }) {
   if (!hasExistingMethod) {
-    return <CreateOnlyAction configKey={configKey} disabled={!hasCredential || Boolean(mutating)} mutating={mutating} onSubmit={onSubmit} />;
+    return (
+      <CreateOnlyAction
+        configKey={configKey}
+        disabled={Boolean(mutating)}
+        mutating={mutating}
+        onSubmit={onSubmit}
+      />
+    );
   }
 
   return (
     <div className="mt-4 flex gap-2">
-      <SyncButton configKey={configKey} disabled={!hasCredential || Boolean(mutating)} mutating={mutating} onSubmit={onSubmit} />
-      <CreateSecondaryButton configKey={configKey} disabled={!hasCredential || Boolean(mutating)} mutating={mutating} onSubmit={onSubmit} />
+      <SyncButton
+        configKey={configKey}
+        disabled={Boolean(mutating)}
+        mutating={mutating}
+        onSubmit={onSubmit}
+      />
+      <CreateSecondaryButton
+        configKey={configKey}
+        disabled={Boolean(mutating)}
+        mutating={mutating}
+        onSubmit={onSubmit}
+      />
     </div>
   );
 }
@@ -427,11 +463,27 @@ function ExchangeInitial({ label }: { readonly label: string }) {
   );
 }
 
-async function requestCurrentTabCapture(): Promise<void> {
+async function requestAllExchangeCapture(): Promise<void> {
   const response = await chrome.runtime.sendMessage({ type: "FETCH_COOKIES_NOW" });
   if (isRuntimeError(response)) {
     throw new Error(response.error);
   }
+}
+
+async function requestExchangeCredentialCapture(
+  exchange: ExchangeKey
+): Promise<ExchangeCredential | null> {
+  const response = await chrome.runtime.sendMessage({
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange,
+  });
+  if (isRuntimeError(response)) {
+    throw new Error(response.error);
+  }
+  if (isCaptureResponse(response)) {
+    return response.credential;
+  }
+  throw new Error("插件后台返回了无法识别的交易所凭证结果");
 }
 
 async function submitAuthMethod(
@@ -483,6 +535,28 @@ function isRuntimeError(value: unknown): value is { readonly ok: false; readonly
 
 function isCredentialMap(value: unknown): value is CredentialMap {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isCaptureResponse(
+  value: unknown
+): value is { readonly ok: true; readonly credential: ExchangeCredential | null } {
+  if (!value || typeof value !== "object" || Reflect.get(value, "ok") !== true) {
+    return false;
+  }
+  const credential = Reflect.get(value, "credential");
+  return credential === null || isExchangeCredential(credential);
+}
+
+function isExchangeCredential(value: unknown): value is ExchangeCredential {
+  return Boolean(
+    value &&
+      typeof value === "object" &&
+      typeof Reflect.get(value, "exchange") === "string" &&
+      typeof Reflect.get(value, "authType") === "string" &&
+      typeof Reflect.get(value, "credential") === "string" &&
+      typeof Reflect.get(value, "capturedAt") === "string" &&
+      typeof Reflect.get(value, "domain") === "string"
+  );
 }
 
 function formatDateTime(value: string): string {
