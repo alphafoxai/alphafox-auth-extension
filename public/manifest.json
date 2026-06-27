@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "AlphaFox Auth Sync",
-  "version": "2.0.1",
-  "description": "Read Binance cookie_csrf credentials and sync them to AlphaFox.",
+  "version": "2.1.0",
+  "description": "Read supported exchange cookies and sync credentials to AlphaFox.",
   "permissions": [
     "cookies",
     "storage",
@@ -18,7 +18,25 @@
     "https://*.binance.com/*",
     "https://www.suitechsui.online/*",
     "https://suitechsui.online/*",
-    "https://*.suitechsui.online/*"
+    "https://*.suitechsui.online/*",
+    "https://www.okx.com/*",
+    "https://okx.com/*",
+    "https://*.okx.com/*",
+    "https://www.bitget.com/*",
+    "https://bitget.com/*",
+    "https://*.bitget.com/*",
+    "https://www.bitgetapps.com/*",
+    "https://bitgetapps.com/*",
+    "https://*.bitgetapps.com/*",
+    "https://www.bybit.com/*",
+    "https://bybit.com/*",
+    "https://*.bybit.com/*",
+    "https://www.gate.io/*",
+    "https://gate.io/*",
+    "https://*.gate.io/*",
+    "https://www.gate.com/*",
+    "https://gate.com/*",
+    "https://*.gate.com/*"
   ],
   "action": {
     "default_title": "AlphaFox Auth Sync",

@@ -1,4 +1,4 @@
-export type ExchangeKey = "binance";
+export type ExchangeKey = "binance" | "okx" | "bitget" | "bybit" | "gate";
 
 export interface ExchangeCookie {
   readonly name: string;
@@ -49,6 +49,50 @@ export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
       const params = new URLSearchParams({ csrfToken, p20t });
       return params.toString();
     },
+  },
+  {
+    key: "okx",
+    label: "OKX",
+    authType: "authorization",
+    authLabel: "Authorization",
+    primaryUrl: "https://www.okx.com",
+    domains: ["okx.com"],
+    requiredCookieNames: ["token"],
+    credentialHelp: "需要 OKX 登录态中的 token Cookie。",
+    buildCredential: ({ cookies }) => findCookieValue(cookies, "token"),
+  },
+  {
+    key: "bitget",
+    label: "Bitget",
+    authType: "session",
+    authLabel: "Session",
+    primaryUrl: "https://www.bitget.com",
+    domains: ["bitget.com", "bitgetapps.com"],
+    requiredCookieNames: ["bt_newsessionid"],
+    credentialHelp: "需要 Bitget 登录态中的 bt_newsessionid Cookie。",
+    buildCredential: ({ cookies }) => findCookieValue(cookies, "bt_newsessionid"),
+  },
+  {
+    key: "bybit",
+    label: "Bybit",
+    authType: "secure_token",
+    authLabel: "Secure Token",
+    primaryUrl: "https://www.bybit.com",
+    domains: ["bybit.com"],
+    requiredCookieNames: ["secure-token"],
+    credentialHelp: "需要 Bybit 登录态中的 secure-token Cookie。",
+    buildCredential: ({ cookies }) => findCookieValue(cookies, "secure-token"),
+  },
+  {
+    key: "gate",
+    label: "Gate.io",
+    authType: "token",
+    authLabel: "Token",
+    primaryUrl: "https://www.gate.io",
+    domains: ["gate.io", "gate.com"],
+    requiredCookieNames: ["token"],
+    credentialHelp: "需要 Gate.io 登录态中的 token Cookie。",
+    buildCredential: ({ cookies }) => findCookieValue(cookies, "token"),
   },
 ];
 
