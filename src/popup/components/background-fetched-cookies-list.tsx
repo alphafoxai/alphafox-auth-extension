@@ -443,11 +443,6 @@ function CredentialPreview({ credential }: { readonly credential: ExchangeCreden
         label="当前页面账号"
         value={credential.account?.username ?? null}
       />
-      {credential.accountLookupError ? (
-        <div className="mt-1 text-[11px] text-amber-700">
-          账号识别失败：{credential.accountLookupError}
-        </div>
-      ) : null}
     </div>
   );
 }

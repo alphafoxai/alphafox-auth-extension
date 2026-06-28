@@ -24,7 +24,6 @@ export interface ExchangeCredential {
   readonly domain: string;
   readonly sourceCookieNames: readonly string[];
   readonly account?: ExchangeAccountInfo;
-  readonly accountLookupError?: string;
 }
 
 export interface ExchangeConfig {

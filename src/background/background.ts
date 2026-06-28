@@ -10,7 +10,6 @@ import {
   type ExchangeRequestHeader,
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
-import { fetchExchangeAccountProfile } from "@/background/exchange-account-profiles";
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -160,11 +159,7 @@ async function buildAndSaveExchangeCredential(
     return null;
   }
 
-  const enrichedCredential = await enrichExchangeCredential(
-    credential,
-    cookies,
-    requestHeaders
-  );
+  const enrichedCredential = enrichExchangeCredential(credential, cookies, requestHeaders);
   await saveCredential(enrichedCredential);
   return enrichedCredential;
 }
@@ -191,23 +186,13 @@ function buildExchangeCredential(
   };
 }
 
-async function enrichExchangeCredential(
+function enrichExchangeCredential(
   credential: ExchangeCredential,
   cookies: readonly ExchangeCookie[],
   requestHeaders: readonly ExchangeRequestHeader[]
-): Promise<ExchangeCredential> {
+): ExchangeCredential {
   const localAccount = detectExchangeAccount({ cookies, requestHeaders });
-
-  try {
-    const profileAccount = await fetchExchangeAccountProfile(credential);
-    return { ...credential, account: profileAccount };
-  } catch (error) {
-    return {
-      ...credential,
-      ...(localAccount ? { account: localAccount } : {}),
-      accountLookupError: readErrorMessage(error),
-    };
-  }
+  return localAccount ? { ...credential, account: localAccount } : credential;
 }
 
 async function getCookiesForUrl(url: URL): Promise<ExchangeCookie[]> {
