@@ -2,6 +2,7 @@ import { Trash2Icon } from "lucide-react";
 
 import { IconButton } from "@/components/ui/button";
 import { EXCHANGE_CONFIGS } from "@/config/exchanges";
+import { readAccountUsernameFromMetadata } from "@/lib/account-metadata";
 import { cn } from "@/lib/utils";
 import type { ExchangeAuthMethod } from "@/types/auth";
 
@@ -71,7 +72,7 @@ function MethodRow({
       <MethodSummary method={method} />
       <IconButton
         aria-label={`删除 ${exchangeLabel(method.exchange)} 凭证`}
-        className="shrink-0 text-slate-500 hover:bg-red-50 hover:text-red-600"
+        className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
         loading={actionLoading === method.id}
         onClick={() => onDelete(method)}
       >
@@ -82,6 +83,7 @@ function MethodRow({
 }
 
 function MethodSummary({ method }: { readonly method: ExchangeAuthMethod }) {
+  const accountUsername = readAccountUsernameFromMetadata(method.metaData);
   return (
     <div className="min-w-0 flex-1">
       <div className="flex flex-wrap items-center gap-2">
@@ -94,6 +96,11 @@ function MethodSummary({ method }: { readonly method: ExchangeAuthMethod }) {
       <div className="mt-1 truncate font-mono text-xs text-slate-500">
         #{method.id} · {method.credentialMasked} · {formatDateTime(method.updatedAt)}
       </div>
+      {accountUsername ? (
+        <div className="mt-1 truncate text-xs text-amber-700">
+          记录账号：{accountUsername}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -16,6 +16,10 @@ import {
   type ExchangeCredential,
   type ExchangeKey,
 } from "@/config/exchanges";
+import {
+  normalizeAccountUsername,
+  readAccountUsernameFromMetadata,
+} from "@/lib/account-metadata";
 import { cn } from "@/lib/utils";
 import { AuthService } from "@/services/auth";
 import type { AuthMethodInput, ExchangeAuthMethod } from "@/types/auth";
@@ -130,8 +134,7 @@ function useCredentialSubmission({
     setMutating(`${mode}:${exchange}`);
     try {
       const credential = await getSubmissionCredential(exchange);
-      await submitAuthMethod(toAuthMethodInput(credential), mode);
-      await onMethodsChanged();
+      await submitAuthMethod(toAuthMethodInput(credential), mode).then(onMethodsChanged);
       toast.success(mode === "create" ? "首次创建成功" : "同步成功");
     } catch (error) {
       toast.error(readErrorMessage(error));
@@ -283,6 +286,7 @@ function ExchangeCardBody({
   readonly existingMethods: readonly ExchangeAuthMethod[];
   readonly help: string;
 }) {
+  const latestMethod = existingMethods[0];
   return (
     <div className="mt-4 flex-1 space-y-3">
       {credential ? <CredentialPreview credential={credential} /> : <MissingCredential help={help} />}
@@ -295,6 +299,9 @@ function ExchangeCardBody({
           AlphaFox 暂无该交易所凭证，请先创建。
         </p>
       )}
+      {latestMethod ? (
+        <AccountComparison credential={credential} method={latestMethod} />
+      ) : null}
     </div>
   );
 }
@@ -431,6 +438,10 @@ function CredentialPreview({ credential }: { readonly credential: ExchangeCreden
         <Clock3Icon className="size-3" />
         {formatDateTime(credential.capturedAt)} · {credential.domain}
       </div>
+      <AccountLine
+        label="当前页面账号"
+        value={credential.account?.username ?? null}
+      />
     </div>
   );
 }
@@ -453,9 +464,48 @@ function ExistingMethodSummary({
 }
 
 function LatestMethodLine({ method }: { readonly method: ExchangeAuthMethod }) {
+  const accountUsername = readAccountUsernameFromMetadata(method.metaData);
   return (
-    <div className="mt-1 font-mono text-[11px] text-slate-500">
-      #{method.id} · {method.credentialMasked} · {formatDateTime(method.updatedAt)}
+    <>
+      <div className="mt-1 font-mono text-[11px] text-slate-500">
+        #{method.id} · {method.credentialMasked} · {formatDateTime(method.updatedAt)}
+      </div>
+      <AccountLine label="已记录账号" value={accountUsername} />
+    </>
+  );
+}
+
+function AccountComparison({
+  credential,
+  method,
+}: {
+  readonly credential?: ExchangeCredential;
+  readonly method: ExchangeAuthMethod;
+}) {
+  const currentAccount = credential?.account?.username ?? null;
+  const recordedAccount = readAccountUsernameFromMetadata(method.metaData);
+  const status = compareAccounts(currentAccount, recordedAccount);
+
+  return (
+    <p className={accountComparisonClassName(status)}>
+      {accountComparisonText(status)}
+    </p>
+  );
+}
+
+function AccountLine({
+  label,
+  value,
+}: {
+  readonly label: string;
+  readonly value: string | null;
+}) {
+  return (
+    <div className="mt-1 text-[11px] text-slate-600">
+      {label}：
+      <span className={value ? "font-semibold text-slate-900" : "text-slate-400"}>
+        {value ?? "未识别"}
+      </span>
     </div>
   );
 }
@@ -577,6 +627,7 @@ function groupMethodsByExchange(
 }
 
 function toAuthMethodInput(credential: ExchangeCredential): AuthMethodInput {
+  const accountUsername = credential.account?.username;
   return {
     exchange: credential.exchange,
     authType: credential.authType,
@@ -585,8 +636,50 @@ function toAuthMethodInput(credential: ExchangeCredential): AuthMethodInput {
       source: "alphafox-auth-extension",
       capturedAt: credential.capturedAt,
       domain: credential.domain,
+      ...(accountUsername
+        ? {
+            nickname: accountUsername,
+            exchangeAccountUsername: accountUsername,
+            exchangeAccountSource: credential.account?.source,
+          }
+        : {}),
     },
   };
+}
+
+function compareAccounts(
+  currentAccount: string | null,
+  recordedAccount: string | null
+): "match" | "mismatch" | "unknown" {
+  const current = normalizeAccountUsername(currentAccount);
+  const recorded = normalizeAccountUsername(recordedAccount);
+  if (!current || !recorded) {
+    return "unknown";
+  }
+  return current === recorded ? "match" : "mismatch";
+}
+
+function accountComparisonText(status: ReturnType<typeof compareAccounts>): string {
+  if (status === "match") {
+    return "账号一致：当前页面账号与 AlphaFox 已记录账号相同。";
+  }
+  if (status === "mismatch") {
+    return "账号不同：同步前请确认是否要用当前页面账号覆盖已记录凭证。";
+  }
+  return "账号无法判断：当前页面或已记录凭证缺少可识别账号名。";
+}
+
+function accountComparisonClassName(
+  status: ReturnType<typeof compareAccounts>
+): string {
+  return cn(
+    "rounded-xl px-3 py-2 text-xs",
+    status === "match"
+      ? "bg-emerald-50 text-emerald-700"
+      : status === "mismatch"
+        ? "bg-red-50 text-red-600"
+        : "bg-amber-50 text-amber-700"
+  );
 }
 
 function isRuntimeError(value: unknown): value is { readonly ok: false; readonly error: string } {

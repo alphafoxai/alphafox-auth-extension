@@ -9,6 +9,7 @@ import {
   type ExchangeKey,
   type ExchangeRequestHeader,
 } from "@/config/exchanges";
+import { detectExchangeAccount } from "@/config/exchange-account";
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -174,6 +175,7 @@ function buildExchangeCredential(
     return null;
   }
 
+  const account = detectExchangeAccount({ cookies, requestHeaders });
   return {
     exchange: config.key,
     authType: config.authType,
@@ -181,6 +183,7 @@ function buildExchangeCredential(
     capturedAt: new Date().toISOString(),
     domain,
     sourceCookieNames: config.requiredCookieNames,
+    ...(account ? { account } : {}),
   };
 }
 

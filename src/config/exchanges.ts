@@ -10,6 +10,11 @@ export interface ExchangeRequestHeader {
   readonly value: string;
 }
 
+export interface ExchangeAccountInfo {
+  readonly username: string;
+  readonly source: string;
+}
+
 export interface ExchangeCredential {
   readonly exchange: ExchangeKey;
   readonly authType: string;
@@ -17,6 +22,7 @@ export interface ExchangeCredential {
   readonly capturedAt: string;
   readonly domain: string;
   readonly sourceCookieNames: readonly string[];
+  readonly account?: ExchangeAccountInfo;
 }
 
 export interface ExchangeConfig {

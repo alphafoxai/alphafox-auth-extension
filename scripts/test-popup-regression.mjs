@@ -13,7 +13,14 @@ const OKX_CREDENTIAL = {
   capturedAt: "2026-06-28T10:00:00.000Z",
   domain: "okx.com",
   sourceCookieNames: ["token"],
+  account: {
+    username: "okx-current-user",
+    source: "cookie:userInfo",
+  },
 };
+const OKX_AUTHORIZATION_JWT = `Bearer jwt.${Buffer.from(
+  JSON.stringify({ nickname: "okx-header-user" })
+).toString("base64url")}.sig`;
 const CACHED_SESSION = {
   user: { id: "user-1", email: "cached@example.com" },
   roles: ["user"],
@@ -48,6 +55,11 @@ try {
   cleanup = await runProgressiveAuthMethodsStartupTest(server);
   cleanup();
   console.log("✓ Binance active 凭证检查会先于其它交易所增量更新");
+
+  installServiceMocks();
+  cleanup = await runAccountComparisonDisplayTest(server);
+  cleanup();
+  console.log("✓ 插件会展示当前页面账号与 AlphaFox 已记录账号对比");
 
   installServiceMocks();
   cleanup = await runOkxHostCookieCaptureTest(server);
@@ -262,6 +274,46 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   return testingLibrary.cleanup;
 }
 
+async function runAccountComparisonDisplayTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { okx: OKX_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethods: [
+        {
+          id: 202,
+          exchange: "okx",
+          authType: "authorization",
+          credentialMasked: "old...oken",
+          metaData: { nickname: "okx-recorded-user" },
+          isActive: true,
+          updatedAt: "2026-06-28T09:00:00.000Z",
+        },
+      ],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText(/当前页面账号：/)));
+  assert.ok(screen.getByText("okx-current-user"));
+  assert.ok(screen.getByText(/已记录账号：/));
+  assert.ok(screen.getByText("okx-recorded-user"));
+  assert.ok(screen.getByText(/账号不同/));
+
+  return testingLibrary.cleanup;
+}
+
 async function runOkxHostCookieCaptureTest(testServer) {
   const storageData = {};
   let runtimeListener;
@@ -331,7 +383,7 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   await requestListener({
     url: "https://www.okx.com/priapi/v5/account/balance",
     requestHeaders: [
-      { name: "Authorization", value: "Bearer okx-header-token" },
+      { name: "Authorization", value: OKX_AUTHORIZATION_JWT },
     ],
   });
   await waitForStoredCredential(storageData, "okx");
@@ -344,7 +396,8 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   assert.equal(response.ok, true);
   assert.equal(response.credential?.exchange, "okx");
   assert.equal(response.credential?.authType, "authorization");
-  assert.equal(response.credential?.credential, "Bearer okx-header-token");
+  assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT);
+  assert.equal(response.credential?.account?.username, "okx-header-user");
 
   return () => {};
 }
@@ -359,7 +412,11 @@ async function runOkxRequestCookieHeaderCaptureTest(testServer) {
   await requestListener({
     url: "https://www.okx.com/priapi/v5/account/balance",
     requestHeaders: [
-      { name: "Cookie", value: "locale=zh-CN; token=okx-cookie-header-token; other=a=b" },
+      {
+        name: "Cookie",
+        value:
+          'locale=zh-CN; userInfo=%7B%22nickname%22%3A%22okx-cookie-user%22%7D; token=okx-cookie-header-token; other=a=b',
+      },
     ],
   });
   await waitForStoredCredential(storageData, "okx");
@@ -373,6 +430,7 @@ async function runOkxRequestCookieHeaderCaptureTest(testServer) {
   assert.equal(response.credential?.exchange, "okx");
   assert.equal(response.credential?.authType, "authorization");
   assert.equal(response.credential?.credential, "okx-cookie-header-token");
+  assert.equal(response.credential?.account?.username, "okx-cookie-user");
 
   return () => {};
 }
@@ -453,6 +511,9 @@ function assertCreateWasSubmitted() {
         source: "alphafox-auth-extension",
         capturedAt: "2026-06-28T10:00:00.000Z",
         domain: "okx.com",
+        nickname: "okx-current-user",
+        exchangeAccountUsername: "okx-current-user",
+        exchangeAccountSource: "cookie:userInfo",
       },
     }
   );

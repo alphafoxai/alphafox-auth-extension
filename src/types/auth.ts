@@ -18,6 +18,7 @@ export interface ExchangeAuthMethod {
   readonly exchange: string;
   readonly authType: string;
   readonly credentialMasked: string;
+  readonly metaData?: Record<string, unknown>;
   readonly isActive: boolean;
   readonly updatedAt: string;
 }
