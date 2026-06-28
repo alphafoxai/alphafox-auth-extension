@@ -5,6 +5,11 @@ export interface ExchangeCookie {
   readonly value: string;
 }
 
+export interface ExchangeRequestHeader {
+  readonly name: string;
+  readonly value: string;
+}
+
 export interface ExchangeCredential {
   readonly exchange: ExchangeKey;
   readonly authType: string;
@@ -29,6 +34,7 @@ export interface ExchangeConfig {
 interface BuildCredentialInput {
   readonly cookies: readonly ExchangeCookie[];
   readonly csrfToken?: string | null;
+  readonly requestHeaders?: readonly ExchangeRequestHeader[];
 }
 
 export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
@@ -57,9 +63,10 @@ export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
     authLabel: "Authorization",
     primaryUrl: "https://www.okx.com",
     domains: ["okx.com"],
-    requiredCookieNames: ["token"],
-    credentialHelp: "需要 OKX 登录态中的 token Cookie。",
-    buildCredential: ({ cookies }) => findCookieValue(cookies, "token"),
+    requiredCookieNames: ["authorization", "token"],
+    credentialHelp: "需要 OKX 登录态请求里的 Authorization 头，或旧版 token Cookie。",
+    buildCredential: ({ cookies, requestHeaders }) =>
+      findHeaderValue(requestHeaders ?? [], "authorization") ?? findCookieValue(cookies, "token"),
   },
   {
     key: "bitget",
@@ -133,6 +140,18 @@ function findCookieValue(
   name: string
 ): string | null {
   return cookies.find((cookie) => cookie.name === name && cookie.value.trim())?.value ?? null;
+}
+
+function findHeaderValue(
+  headers: readonly ExchangeRequestHeader[],
+  name: string
+): string | null {
+  const normalizedName = name.toLowerCase();
+  return (
+    headers.find(
+      (header) => header.name.toLowerCase() === normalizedName && header.value.trim()
+    )?.value ?? null
+  );
 }
 
 function hostnameMatchesDomain(hostname: string, domain: string): boolean {

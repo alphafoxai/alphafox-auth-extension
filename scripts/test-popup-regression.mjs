@@ -53,6 +53,16 @@ try {
   cleanup = await runOkxHostCookieCaptureTest(server);
   cleanup();
   console.log("✓ OKX 按需抓取会读取当前 okx.com 标签页域名 Cookie");
+
+  installServiceMocks();
+  cleanup = await runOkxAuthorizationHeaderCaptureTest(server);
+  cleanup();
+  console.log("✓ OKX 页面请求里的 Authorization 头会被保存为登录凭证");
+
+  installServiceMocks();
+  cleanup = await runOkxRequestCookieHeaderCaptureTest(server);
+  cleanup();
+  console.log("✓ OKX 页面请求里的 Cookie 头 token 会被保存为登录凭证");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
@@ -311,6 +321,104 @@ async function runOkxHostCookieCaptureTest(testServer) {
   return () => {};
 }
 
+async function runOkxAuthorizationHeaderCaptureTest(testServer) {
+  const { requestListener, runtimeListener, storageData } =
+    await loadBackgroundWithRequestCapture(
+      testServer,
+      "okx-authorization-header"
+  );
+
+  await requestListener({
+    url: "https://www.okx.com/priapi/v5/account/balance",
+    requestHeaders: [
+      { name: "Authorization", value: "Bearer okx-header-token" },
+    ],
+  });
+  await waitForStoredCredential(storageData, "okx");
+
+  const response = await sendBackgroundMessage(runtimeListener, {
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange: "okx",
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.credential?.exchange, "okx");
+  assert.equal(response.credential?.authType, "authorization");
+  assert.equal(response.credential?.credential, "Bearer okx-header-token");
+
+  return () => {};
+}
+
+async function runOkxRequestCookieHeaderCaptureTest(testServer) {
+  const { requestListener, runtimeListener, storageData } =
+    await loadBackgroundWithRequestCapture(
+      testServer,
+      "okx-cookie-header"
+  );
+
+  await requestListener({
+    url: "https://www.okx.com/priapi/v5/account/balance",
+    requestHeaders: [
+      { name: "Cookie", value: "locale=zh-CN; token=okx-cookie-header-token; other=a=b" },
+    ],
+  });
+  await waitForStoredCredential(storageData, "okx");
+
+  const response = await sendBackgroundMessage(runtimeListener, {
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange: "okx",
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.credential?.exchange, "okx");
+  assert.equal(response.credential?.authType, "authorization");
+  assert.equal(response.credential?.credential, "okx-cookie-header-token");
+
+  return () => {};
+}
+
+async function loadBackgroundWithRequestCapture(testServer, caseName) {
+  const storageData = {};
+  let runtimeListener;
+  let requestListener;
+  const chromeMock = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+    storageData,
+  });
+  chromeMock.runtime.onMessage = {
+    addListener: createMock((listener) => {
+      runtimeListener = listener;
+    }),
+  };
+  chromeMock.webRequest = {
+    onBeforeSendHeaders: {
+      addListener: createMock((listener, _filter, extraInfoSpec) => {
+        requestListener = listener;
+        assert.ok(extraInfoSpec.includes("extraHeaders"));
+      }),
+    },
+  };
+  chromeMock.tabs = {
+    ...chromeMock.tabs,
+    onUpdated: { addListener: createMock() },
+    query: createMock(() => [
+      { url: "https://www.okx.com/account/users" },
+    ]),
+  };
+  chromeMock.cookies = {
+    getAll: createMock(() => []),
+  };
+  globalThis.chrome = chromeMock;
+
+  await testServer.ssrLoadModule(
+    `/src/background/background.ts?case=${caseName}-${Date.now()}`
+  );
+  assert.equal(typeof runtimeListener, "function");
+  assert.equal(typeof requestListener, "function");
+
+  return { requestListener, runtimeListener, storageData };
+}
+
 function handleRuntimeMessage(message, storedCredentials) {
   if (message.type === "GET_EXCHANGE_CREDENTIALS") {
     return storedCredentials;
@@ -402,6 +510,17 @@ function sendBackgroundMessage(listener, message) {
   return new Promise((resolve) => {
     listener(message, {}, resolve);
   });
+}
+
+async function waitForStoredCredential(storageData, exchange) {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const credentials = storageData["alphafox:exchangeCredentials"];
+    if (credentials?.[exchange]) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  assert.fail(`Timed out waiting for stored ${exchange} credential`);
 }
 
 function createMock(implementation = () => undefined) {

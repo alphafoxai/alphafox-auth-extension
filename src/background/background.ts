@@ -7,6 +7,7 @@ import {
   type ExchangeCredential,
   type ExchangeCookie,
   type ExchangeKey,
+  type ExchangeRequestHeader,
 } from "@/config/exchanges";
 
 const STORAGE_KEYS = {
@@ -55,12 +56,12 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
     void captureCsrfToken(details.requestHeaders ?? []);
-    void captureCredentialForUrl(details.url).catch((error) => {
+    void captureCredentialForUrl(details.url, details.requestHeaders ?? []).catch((error) => {
       console.warn("[AlphaFox] 自动抓取交易所凭证失败", error);
     });
   },
   { urls: buildExchangeUrlPatterns() },
-  ["requestHeaders"]
+  ["requestHeaders", "extraHeaders"]
 );
 
 chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
@@ -81,7 +82,16 @@ async function captureRequestedExchange(
   }
   const config = getExchangeConfig(exchange);
   const activeTabCredential = await captureCredentialForActiveTab(config);
-  return activeTabCredential ?? captureCredentialForExchange(config);
+  if (activeTabCredential) {
+    return activeTabCredential;
+  }
+
+  const scannedCredential = await captureCredentialForExchange(config);
+  if (scannedCredential) {
+    return scannedCredential;
+  }
+
+  return (await getStoredCredentials())[config.key] ?? null;
 }
 
 async function captureCredentialsForAllExchanges(): Promise<readonly ExchangeCredential[]> {
@@ -107,15 +117,26 @@ async function captureCredentialForActiveTab(
   return captureCredentialForUrl(tab.url);
 }
 
-async function captureCredentialForUrl(rawUrl: string): Promise<ExchangeCredential | null> {
+async function captureCredentialForUrl(
+  rawUrl: string,
+  requestHeaders: readonly chrome.webRequest.HttpHeader[] = []
+): Promise<ExchangeCredential | null> {
   const url = new URL(rawUrl);
   const config = findExchangeConfigByHost(url.hostname);
   if (!config) {
     return null;
   }
 
-  const cookies = await getCookiesForUrl(url);
-  return buildAndSaveExchangeCredential(config, url.hostname, cookies);
+  const cookies = dedupeCookies([
+    ...(await getCookiesForUrl(url)),
+    ...readCookiesFromRequestHeaders(requestHeaders),
+  ]);
+  return buildAndSaveExchangeCredential(
+    config,
+    url.hostname,
+    cookies,
+    requestHeaders.map(toExchangeRequestHeader)
+  );
 }
 
 async function captureCredentialForExchange(
@@ -128,10 +149,11 @@ async function captureCredentialForExchange(
 async function buildAndSaveExchangeCredential(
   config: ExchangeConfig,
   domain: string,
-  cookies: readonly ExchangeCookie[]
+  cookies: readonly ExchangeCookie[],
+  requestHeaders: readonly ExchangeRequestHeader[] = []
 ): Promise<ExchangeCredential | null> {
   const csrfToken = await readStoredCsrfToken();
-  const credential = buildExchangeCredential(config, domain, cookies, csrfToken);
+  const credential = buildExchangeCredential(config, domain, cookies, csrfToken, requestHeaders);
   if (!credential) {
     return null;
   }
@@ -144,9 +166,10 @@ function buildExchangeCredential(
   config: ExchangeConfig,
   domain: string,
   cookies: readonly ExchangeCookie[],
-  csrfToken: string | null
+  csrfToken: string | null,
+  requestHeaders: readonly ExchangeRequestHeader[]
 ): ExchangeCredential | null {
-  const credential = config.buildCredential({ cookies, csrfToken });
+  const credential = config.buildCredential({ cookies, csrfToken, requestHeaders });
   if (!credential) {
     return null;
   }
@@ -200,6 +223,41 @@ function buildCookieQueriesForUrl(url: URL): CookieQuery[] {
 
 function toExchangeCookie(cookie: chrome.cookies.Cookie): ExchangeCookie {
   return { name: cookie.name, value: cookie.value };
+}
+
+function toExchangeRequestHeader(
+  header: chrome.webRequest.HttpHeader
+): ExchangeRequestHeader {
+  return { name: header.name, value: header.value ?? "" };
+}
+
+function readCookiesFromRequestHeaders(
+  headers: readonly chrome.webRequest.HttpHeader[]
+): ExchangeCookie[] {
+  return headers
+    .filter((header) => header.name.toLowerCase() === "cookie" && header.value?.trim())
+    .flatMap((header) => parseCookieHeader(header.value ?? ""));
+}
+
+function parseCookieHeader(value: string): ExchangeCookie[] {
+  return value
+    .split(";")
+    .map(parseCookiePair)
+    .filter((cookie): cookie is ExchangeCookie => Boolean(cookie));
+}
+
+function parseCookiePair(pair: string): ExchangeCookie | null {
+  const separatorIndex = pair.indexOf("=");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+
+  const name = pair.slice(0, separatorIndex).trim();
+  const value = pair.slice(separatorIndex + 1).trim();
+  if (!name || !value) {
+    return null;
+  }
+  return { name, value };
 }
 
 function dedupeCookies(cookies: readonly ExchangeCookie[]): ExchangeCookie[] {
