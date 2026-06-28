@@ -54,10 +54,6 @@ export class AuthService {
     });
   }
 
-  static async syncAuthMethod(input: AuthMethodInput): Promise<void> {
-    await this.createAuthMethod(input);
-  }
-
   static async deleteAuthMethod(id: number): Promise<void> {
     await requestJson<{ readonly ok: boolean }>(`/${encodeURIComponent(id)}`, {
       method: "DELETE",

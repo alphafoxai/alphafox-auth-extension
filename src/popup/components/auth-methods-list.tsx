@@ -2,6 +2,7 @@ import { Trash2Icon } from "lucide-react";
 
 import { IconButton } from "@/components/ui/button";
 import { EXCHANGE_CONFIGS } from "@/config/exchanges";
+import { readBrowserProfileLabelFromMetadata } from "@/lib/browser-profile";
 import { readAccountUsernameFromMetadata } from "@/lib/account-metadata";
 import { cn } from "@/lib/utils";
 import type { ExchangeAuthMethod } from "@/types/auth";
@@ -100,6 +101,16 @@ function MethodSummary({ method }: { readonly method: ExchangeAuthMethod }) {
           记录账号：{accountUsername}
         </div>
       ) : null}
+      <ProfileSourceLine method={method} />
+    </div>
+  );
+}
+
+function ProfileSourceLine({ method }: { readonly method: ExchangeAuthMethod }) {
+  const profileLabel = readBrowserProfileLabelFromMetadata(method.metaData);
+  return (
+    <div className="mt-1 truncate text-xs text-slate-500">
+      来源：{profileLabel ?? "未标记浏览器"}
     </div>
   );
 }

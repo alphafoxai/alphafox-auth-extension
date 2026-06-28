@@ -296,7 +296,7 @@ function Header({
         </div>
         <div className="flex gap-2">
           <Button
-            aria-label="刷新 AlphaFox 登录状态与同步列表"
+            aria-label="刷新 AlphaFox 登录状态与记录列表"
             loading={loading}
             onClick={onRefresh}
             size="icon"

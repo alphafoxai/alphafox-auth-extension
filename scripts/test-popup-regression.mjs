@@ -33,6 +33,15 @@ const BINANCE_METHOD = {
   credentialMasked: "p20t...csrf",
   isActive: true,
   updatedAt: "2026-06-28T10:00:00.000Z",
+  metaData: {
+    browserProfileId: "browser-profile-a",
+    browserProfileName: "浏览器配置 TEST01",
+  },
+};
+const BROWSER_PROFILE_STORAGE_KEY = "alphafox:browserProfile";
+const TEST_BROWSER_PROFILE = {
+  id: "browser-profile-a",
+  label: "浏览器配置 TEST01",
 };
 
 let server;
@@ -45,7 +54,7 @@ try {
   installServiceMocks();
   cleanup = await runOkxOnDemandCaptureTest(server);
   cleanup();
-  console.log("✓ OKX 首次创建会按需抓取并提交 authorization 凭证");
+  console.log("✓ OKX 保存本浏览器会按需抓取并提交 authorization 凭证");
 
   installServiceMocks();
   cleanup = await runCachedPopupStartupTest(server);
@@ -109,7 +118,6 @@ function installServiceMocks() {
     listAuthMethods: createMock(() => []),
     listAllAuthMethods: createMock(() => []),
     openLoginPage: createMock(),
-    syncAuthMethod: createMock(),
   };
   globalThis.__ALPHAFOX_TOAST_MOCK__ = {
     error: createMock(),
@@ -163,10 +171,14 @@ async function runOkxOnDemandCaptureTest(testServer) {
     })
   );
 
-  const okxCreateButton = within(getExchangeCard(screen, "OKX")).getByRole("button", {
-    name: "首次创建",
+  await waitFor(() => assert.ok(screen.getByText("浏览器配置 TEST01")));
+  const okxCreateButton = await waitFor(() => {
+    const button = within(getExchangeCard(screen, "OKX")).getByRole("button", {
+      name: "保存本浏览器",
+    });
+    assert.equal(button.disabled, false);
+    return button;
   });
-  assert.equal(okxCreateButton.disabled, false);
   fireEvent.click(okxCreateButton);
 
   await waitFor(() => assertCaptureWasRequested(sendMessage.calls));
@@ -250,7 +262,7 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
   let binanceCard = getExchangeCard(screen, "Binance");
   assert.equal(
-    within(binanceCard).queryByRole("button", { name: "首次创建" }),
+    within(binanceCard).queryByRole("button", { name: "保存本浏览器" }),
     null
   );
   assert.ok(within(binanceCard).getByRole("button", { name: "检查中" }));
@@ -261,7 +273,8 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   });
   await waitFor(() => {
     binanceCard = getExchangeCard(screen, "Binance");
-    assert.ok(within(binanceCard).getByRole("button", { name: "同步最新" }));
+    assert.ok(within(binanceCard).getByRole("button", { name: "保存本浏览器" }));
+    assert.ok(within(binanceCard).getByText(/本浏览器 1 条/));
   });
 
   await testingLibrary.act(async () => {
@@ -510,6 +523,8 @@ function assertCreateWasSubmitted() {
         source: "alphafox-auth-extension",
         capturedAt: "2026-06-28T10:00:00.000Z",
         domain: "okx.com",
+        browserProfileId: "browser-profile-a",
+        browserProfileName: "浏览器配置 TEST01",
         nickname: "okx-current-user",
         exchangeAccountUsername: "okx-current-user",
         exchangeAccountSource: "cookie:userInfo",
@@ -530,6 +545,9 @@ function getExchangeCard(screen, label) {
 }
 
 function createChromeMock({ sendMessage, storageData = {} }) {
+  if (!Object.hasOwn(storageData, BROWSER_PROFILE_STORAGE_KEY)) {
+    storageData[BROWSER_PROFILE_STORAGE_KEY] = TEST_BROWSER_PROFILE;
+  }
   return {
     runtime: { sendMessage },
     storage: {
