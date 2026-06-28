@@ -4,16 +4,30 @@ import {
   CheckCircle2Icon,
   Clock3Icon,
   DatabaseIcon,
-  FingerprintIcon,
   ShieldCheckIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   EXCHANGE_CONFIGS,
   getExchangeConfig,
-  maskCredential,
   type ExchangeCredential,
   type ExchangeKey,
 } from "@/config/exchanges";
@@ -40,8 +54,12 @@ interface ExchangeCredentialsPanelProps {
 }
 
 type CredentialMap = Partial<Record<ExchangeKey, ExchangeCredential>>;
+type LinkedStatusMap = Partial<Record<ExchangeKey, number>>;
 type AuthMethodLoadStatus = "checking" | "loaded" | "error";
 type AuthMethodStatusMap = Partial<Record<ExchangeKey, AuthMethodLoadStatus>>;
+
+const CREATE_RECORD_SELECT_VALUE = "__alphafox_create_record__";
+const EMPTY_LINKED_STATUSES: LinkedStatusMap = Object.freeze({});
 
 export function ExchangeCredentialsPanel({
   authMethodStatus,
@@ -50,10 +68,15 @@ export function ExchangeCredentialsPanel({
 }: ExchangeCredentialsPanelProps) {
   const browserProfileState = useBrowserProfile();
   const credentialState = useStoredCredentials();
-  const submission = useCredentialSubmission({
+  const linkedState = useLinkedAuthMethods(
+    browserProfileState.profile,
+    authMethods
+  );
+  const syncController = useExchangeSyncController({
     browserProfile: browserProfileState.profile,
     captureCredential: credentialState.captureExchangeCredential,
     credentials: credentialState.credentials,
+    linkMethod: linkedState.linkMethod,
     onMethodsChanged,
   });
   const methodsByExchange = useMemo(
@@ -64,15 +87,13 @@ export function ExchangeCredentialsPanel({
   return (
     <section className="space-y-4" aria-labelledby="exchange-sync-title">
       <InstructionCard />
-      <BrowserProfileNotice
-        error={browserProfileState.error}
-        profile={browserProfileState.profile}
-      />
+      <ProfileErrorMessage message={browserProfileState.error} />
+      <ProfileErrorMessage message={linkedState.error} />
       <RefreshStatusBar
         fetching={credentialState.fetching}
         onRefresh={credentialState.captureAllExchanges}
       />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2">
         {EXCHANGE_CONFIGS.map((config) => (
           <ExchangeCard
             authMethodStatus={readAuthMethodStatus(authMethodStatus, config.key)}
@@ -81,11 +102,21 @@ export function ExchangeCredentialsPanel({
             credential={credentialState.credentials[config.key]}
             existingMethods={methodsByExchange[config.key] ?? []}
             key={config.key}
-            mutating={submission.mutating}
-            onSubmit={submission.submitCredential}
+            linkedMethodId={linkedState.linkedStatuses[config.key]}
+            mutating={syncController.mutating}
+            onOpenBindingDialog={syncController.openBindingDialog}
+            onSync={syncController.syncLinkedMethod}
           />
         ))}
       </div>
+      <SyncDialog
+        dialog={syncController.dialog}
+        methodsByExchange={methodsByExchange}
+        mutating={syncController.mutating}
+        onConfirm={syncController.confirmDialog}
+        onOpenChange={syncController.setDialogOpen}
+        onSelectedMethodChange={syncController.setDialogSelectedMethod}
+      />
     </section>
   );
 }
@@ -133,7 +164,7 @@ function useStoredCredentials() {
     try {
       await requestAllExchangeCapture();
       await refreshCredentials();
-      toast.success("已扫描所有支持交易所登录信息");
+      toast.success("已刷新交易所网页登录状态");
     } catch (error) {
       toast.error(readErrorMessage(error));
     } finally {
@@ -152,34 +183,185 @@ function useStoredCredentials() {
   return { captureAllExchanges, captureExchangeCredential, credentials, fetching };
 }
 
-function useCredentialSubmission({
+function useLinkedAuthMethods(
+  browserProfile: BrowserProfileInfo | null,
+  authMethods: readonly ExchangeAuthMethod[]
+) {
+  const [state, setState] = useState<LinkedStatusState>({
+    error: "",
+    linkedStatuses: {},
+    profileId: null,
+  });
+  const profileLoaded = Boolean(
+    browserProfile && state.profileId === browserProfile.id
+  );
+  const linkedStatuses = profileLoaded ? state.linkedStatuses : EMPTY_LINKED_STATUSES;
+
+  useEffect(() => {
+    if (!browserProfile) {
+      return;
+    }
+
+    let cancelled = false;
+    void readLinkedStatuses(browserProfile)
+      .then((stored) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          error: "",
+          linkedStatuses: stored,
+          profileId: browserProfile.id,
+        });
+      })
+      .catch((storageError) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          error: readErrorMessage(storageError),
+          linkedStatuses: {},
+          profileId: browserProfile.id,
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [browserProfile]);
+
+  useEffect(() => {
+    if (!browserProfile || !profileLoaded || authMethods.length === 0) {
+      return;
+    }
+
+    const inferred = inferBrowserProfileLinks(
+      linkedStatuses,
+      authMethods,
+      browserProfile
+    );
+    if (linkedStatusesEqual(linkedStatuses, inferred)) {
+      return;
+    }
+
+    setState({
+      error: "",
+      linkedStatuses: inferred,
+      profileId: browserProfile.id,
+    });
+    void writeLinkedStatuses(browserProfile, inferred).catch((storageError) => {
+      setState((current) => ({
+        ...current,
+        error: readErrorMessage(storageError),
+      }));
+    });
+  }, [authMethods, browserProfile, linkedStatuses, profileLoaded]);
+
+  async function linkMethod(
+    exchange: ExchangeKey,
+    method: Pick<ExchangeAuthMethod, "id">
+  ): Promise<void> {
+    if (!browserProfile) {
+      throw new Error("正在读取本浏览器标识，请稍后重试。");
+    }
+
+    const nextStatuses = { ...linkedStatuses, [exchange]: method.id };
+    setState({
+      error: "",
+      linkedStatuses: nextStatuses,
+      profileId: browserProfile.id,
+    });
+    await writeLinkedStatuses(browserProfile, nextStatuses);
+  }
+
+  return { error: state.error, linkMethod, linkedStatuses };
+}
+
+interface LinkedStatusState {
+  readonly error: string;
+  readonly linkedStatuses: LinkedStatusMap;
+  readonly profileId: string | null;
+}
+
+function useExchangeSyncController({
   browserProfile,
   captureCredential,
   credentials,
+  linkMethod,
   onMethodsChanged,
 }: {
   readonly browserProfile: BrowserProfileInfo | null;
   readonly captureCredential: (exchange: ExchangeKey) => Promise<ExchangeCredential | null>;
   readonly credentials: CredentialMap;
+  readonly linkMethod: (
+    exchange: ExchangeKey,
+    method: Pick<ExchangeAuthMethod, "id">
+  ) => Promise<void>;
   readonly onMethodsChanged: () => Promise<void>;
 }) {
-  const [mutating, setMutating] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<SyncDialogState | null>(null);
+  const [mutating, setMutating] = useState<ExchangeKey | null>(null);
 
-  async function submitCredential(exchange: ExchangeKey) {
+  async function openBindingDialog(
+    exchange: ExchangeKey,
+    linkedMethodId?: number
+  ): Promise<void> {
     setMutating(exchange);
     try {
-      if (!browserProfile) {
-        throw new Error("正在读取本浏览器标识，请稍后重试。");
-      }
       const credential = await getSubmissionCredential(exchange);
-      await AuthService.createAuthMethod(toAuthMethodInput(credential, browserProfile));
-      await onMethodsChanged();
-      toast.success("已保存本浏览器登录信息");
+      setDialog({ exchange, credential, selectedMethodId: linkedMethodId ?? null });
     } catch (error) {
       toast.error(readErrorMessage(error));
     } finally {
       setMutating(null);
     }
+  }
+
+  async function syncLinkedMethod(
+    exchange: ExchangeKey,
+    methodId: number
+  ): Promise<void> {
+    setMutating(exchange);
+    try {
+      const credential = await getSubmissionCredential(exchange);
+      await saveCredentialToAlphaFox(exchange, credential, methodId);
+      toast.success("同步成功");
+    } catch (error) {
+      toast.error(readErrorMessage(error));
+    } finally {
+      setMutating(null);
+    }
+  }
+
+  async function confirmDialog(): Promise<void> {
+    if (!dialog) {
+      return;
+    }
+
+    setMutating(dialog.exchange);
+    try {
+      await saveCredentialToAlphaFox(
+        dialog.exchange,
+        dialog.credential,
+        dialog.selectedMethodId
+      );
+      toast.success(dialog.selectedMethodId ? "绑定并同步成功" : "创建成功");
+      setDialog(null);
+    } catch (error) {
+      toast.error(readErrorMessage(error));
+    } finally {
+      setMutating(null);
+    }
+  }
+
+  function setDialogOpen(open: boolean): void {
+    if (!open) {
+      setDialog(null);
+    }
+  }
+
+  function setDialogSelectedMethod(methodId: number | null): void {
+    setDialog((current) => current ? { ...current, selectedMethodId: methodId } : current);
   }
 
   async function getSubmissionCredential(exchange: ExchangeKey): Promise<ExchangeCredential> {
@@ -199,58 +381,67 @@ function useCredentialSubmission({
     );
   }
 
-  return { mutating, submitCredential };
+  async function saveCredentialToAlphaFox(
+    exchange: ExchangeKey,
+    credential: ExchangeCredential,
+    methodId: number | null
+  ): Promise<void> {
+    if (!browserProfile) {
+      throw new Error("正在读取本浏览器标识，请稍后重试。");
+    }
+
+    const input = toAuthMethodInput(credential, browserProfile);
+    const savedMethod = methodId
+      ? await AuthService.updateAuthMethod(methodId, input)
+      : await AuthService.createAuthMethod(input);
+    assertSavedMethod(savedMethod);
+    await linkMethod(exchange, savedMethod);
+    await onMethodsChanged();
+  }
+
+  return {
+    confirmDialog,
+    dialog,
+    mutating,
+    openBindingDialog,
+    setDialogOpen,
+    setDialogSelectedMethod,
+    syncLinkedMethod,
+  };
+}
+
+interface SyncDialogState {
+  readonly exchange: ExchangeKey;
+  readonly credential: ExchangeCredential;
+  readonly selectedMethodId: number | null;
 }
 
 function InstructionCard() {
   return (
-    <div className="rounded-2xl border border-orange-200/70 bg-orange-50/80 p-4 text-orange-950 shadow-sm">
+    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-950 shadow-sm">
       <div className="flex gap-3">
-        <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-orange-600" />
+        <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-blue-600" />
         <div className="space-y-1.5 text-sm leading-relaxed">
           <h2 id="exchange-sync-title" className="font-semibold">
-            一个浏览器配置保存一份登录信息
+            使用说明
           </h2>
-          <p>
-            多个 Chrome Profile 登录同一个 AlphaFox 账号时，每个 Profile 都会用自己的浏览器标识保存记录，适合管理同一交易所的多个账号。
-          </p>
+          <p>1. 首次绑定：点击交易所名称网页登录账号，然后点击“创建”。</p>
+          <p>2. 日常更新：重新登录交易所后，点击“同步”更新已绑定记录。</p>
+          <p>3. 多账号：在不同 Chrome Profile 中切换到不同记录后分别同步。</p>
         </div>
       </div>
     </div>
   );
 }
 
-function BrowserProfileNotice({
-  error,
-  profile,
-}: {
-  readonly error: string;
-  readonly profile: BrowserProfileInfo | null;
-}) {
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-        本浏览器标识读取失败：{error}
-      </div>
-    );
+function ProfileErrorMessage({ message }: { readonly message: string }) {
+  if (!message) {
+    return null;
   }
 
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white/85 px-4 py-3 shadow-sm">
-      <div className="flex items-start gap-3">
-        <FingerprintIcon className="mt-0.5 size-4 shrink-0 text-orange-500" />
-        <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap items-center gap-2 text-sm font-medium text-slate-900">
-            <span>本浏览器</span>
-            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-xs text-orange-700">
-              {profile?.label ?? "正在读取..."}
-            </span>
-          </div>
-          <p className="text-xs leading-relaxed text-slate-600">
-            在浏览器 A/B/C 中分别保存时，AlphaFox 会按浏览器标识展示多条记录；当前窗口只会保存当前浏览器里已登录的交易所账号。
-          </p>
-        </div>
-      </div>
+    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      本浏览器绑定状态读取失败：{message}
     </div>
   );
 }
@@ -266,10 +457,10 @@ function RefreshStatusBar({
     <div className="flex items-center justify-between rounded-xl border bg-white/85 px-4 py-3 shadow-sm">
       <div className="flex items-center gap-2 text-sm text-slate-600">
         <LiveDot />
-        <span>自动监听交易所请求，并每 5 秒刷新面板</span>
+        <span>自动抓取中（每 5 秒）</span>
       </div>
       <Button size="sm" variant="outline" onClick={() => void onRefresh()} loading={fetching}>
-        立即刷新
+        {fetching ? "刷新中..." : "立即刷新"}
       </Button>
     </div>
   );
@@ -281,26 +472,35 @@ function ExchangeCard({
   configKey,
   credential,
   existingMethods,
+  linkedMethodId,
   mutating,
-  onSubmit,
+  onOpenBindingDialog,
+  onSync,
 }: {
   readonly authMethodStatus: AuthMethodLoadStatus;
   readonly browserProfile: BrowserProfileInfo | null;
   readonly configKey: ExchangeKey;
   readonly credential?: ExchangeCredential;
   readonly existingMethods: readonly ExchangeAuthMethod[];
-  readonly mutating: string | null;
-  readonly onSubmit: (exchange: ExchangeKey) => Promise<void>;
+  readonly linkedMethodId?: number;
+  readonly mutating: ExchangeKey | null;
+  readonly onOpenBindingDialog: (
+    exchange: ExchangeKey,
+    linkedMethodId?: number
+  ) => Promise<void>;
+  readonly onSync: (exchange: ExchangeKey, methodId: number) => Promise<void>;
 }) {
   const config = getExchangeConfig(configKey);
-  const hasExistingMethod = existingMethods.length > 0;
+  const linkedMethod = findMethodById(existingMethods, linkedMethodId);
+  const linked = Boolean(linkedMethodId);
+  const hasCredential = Boolean(credential);
 
   return (
     <article className="flex min-h-[218px] flex-col rounded-2xl border bg-white/90 p-4 shadow-sm transition-shadow hover:shadow-md">
       <ExchangeCardHeader
-        authMethodStatus={authMethodStatus}
         configKey={configKey}
-        hasExistingMethod={hasExistingMethod}
+        linked={linked}
+        status={authMethodStatus}
       />
       <ExchangeCardBody
         authMethodStatus={authMethodStatus}
@@ -308,27 +508,31 @@ function ExchangeCard({
         credential={credential}
         existingMethods={existingMethods}
         help={config.credentialHelp}
+        linkedMethod={linkedMethod}
+        linkedMethodId={linkedMethodId}
       />
       <ExchangeCardActions
-        authMethodStatus={authMethodStatus}
-        browserProfile={browserProfile}
         configKey={configKey}
-        hasExistingMethod={hasExistingMethod}
-        mutating={mutating}
-        onSubmit={onSubmit}
+        disabled={Boolean(mutating) || !browserProfile}
+        hasCredential={hasCredential}
+        linked={linked}
+        linkedMethodId={linkedMethodId}
+        loading={mutating === configKey}
+        onOpenBindingDialog={onOpenBindingDialog}
+        onSync={onSync}
       />
     </article>
   );
 }
 
 function ExchangeCardHeader({
-  authMethodStatus,
   configKey,
-  hasExistingMethod,
+  linked,
+  status,
 }: {
-  readonly authMethodStatus: AuthMethodLoadStatus;
   readonly configKey: ExchangeKey;
-  readonly hasExistingMethod: boolean;
+  readonly linked: boolean;
+  readonly status: AuthMethodLoadStatus;
 }) {
   const config = getExchangeConfig(configKey);
   return (
@@ -345,10 +549,10 @@ function ExchangeCardHeader({
             {config.label}
             <ArrowUpRightIcon className="size-3.5" />
           </span>
-          <span className="block text-xs text-slate-500">{config.authLabel}</span>
+          <span className="block text-xs text-slate-500">网页登录状态</span>
         </span>
       </button>
-      <StatusPill active={hasExistingMethod} status={authMethodStatus} />
+      <StatusPill linked={linked} status={status} />
     </div>
   );
 }
@@ -359,16 +563,24 @@ function ExchangeCardBody({
   credential,
   existingMethods,
   help,
+  linkedMethod,
+  linkedMethodId,
 }: {
   readonly authMethodStatus: AuthMethodLoadStatus;
   readonly browserProfile: BrowserProfileInfo | null;
   readonly credential?: ExchangeCredential;
   readonly existingMethods: readonly ExchangeAuthMethod[];
   readonly help: string;
+  readonly linkedMethod?: ExchangeAuthMethod;
+  readonly linkedMethodId?: number;
 }) {
-  const comparisonMethod = selectComparisonMethod(existingMethods, browserProfile);
+  const comparisonMethod = linkedMethod ?? selectComparisonMethod(existingMethods, browserProfile);
+
   return (
     <div className="mt-4 flex-1 space-y-3">
+      {linkedMethodId ? (
+        <LinkedMethodSummary method={linkedMethod} methodId={linkedMethodId} />
+      ) : null}
       {credential ? <CredentialPreview credential={credential} /> : <MissingCredential help={help} />}
       {existingMethods.length > 0 ? (
         <ExistingMethodSummary browserProfile={browserProfile} methods={existingMethods} />
@@ -376,7 +588,7 @@ function ExchangeCardBody({
         <AuthMethodStatusMessage status={authMethodStatus} />
       ) : (
         <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-          AlphaFox 暂无该交易所登录记录，请保存本浏览器。
+          AlphaFox 暂无该交易所记录，可点击创建。
         </p>
       )}
       {comparisonMethod ? (
@@ -387,70 +599,53 @@ function ExchangeCardBody({
 }
 
 function ExchangeCardActions({
-  authMethodStatus,
-  browserProfile,
-  configKey,
-  hasExistingMethod,
-  mutating,
-  onSubmit,
-}: {
-  readonly authMethodStatus: AuthMethodLoadStatus;
-  readonly browserProfile: BrowserProfileInfo | null;
-  readonly configKey: ExchangeKey;
-  readonly hasExistingMethod: boolean;
-  readonly mutating: string | null;
-  readonly onSubmit: (exchange: ExchangeKey) => Promise<void>;
-}) {
-  if (!hasExistingMethod && authMethodStatus !== "loaded") {
-    return <CheckingAction status={authMethodStatus} />;
-  }
-
-  return (
-    <SaveBrowserProfileAction
-      configKey={configKey}
-      disabled={Boolean(mutating) || !browserProfile}
-      mutating={mutating}
-      onSubmit={onSubmit}
-    />
-  );
-}
-
-function CheckingAction({ status }: { readonly status: AuthMethodLoadStatus }) {
-  return (
-    <div className="mt-4">
-      <Button className="w-full" disabled loading={status === "checking"} size="sm" variant="outline">
-        {status === "checking" ? "检查中" : "检查失败"}
-      </Button>
-    </div>
-  );
-}
-
-function SaveBrowserProfileAction({
   configKey,
   disabled,
-  mutating,
-  onSubmit,
-}: ActionButtonProps) {
+  hasCredential,
+  linked,
+  linkedMethodId,
+  loading,
+  onOpenBindingDialog,
+  onSync,
+}: {
+  readonly configKey: ExchangeKey;
+  readonly disabled: boolean;
+  readonly hasCredential: boolean;
+  readonly linked: boolean;
+  readonly linkedMethodId?: number;
+  readonly loading: boolean;
+  readonly onOpenBindingDialog: (
+    exchange: ExchangeKey,
+    linkedMethodId?: number
+  ) => Promise<void>;
+  readonly onSync: (exchange: ExchangeKey, methodId: number) => Promise<void>;
+}) {
+  const buttonDisabled = disabled;
+
   return (
-    <div className="mt-4">
+    <div className="mt-4 flex gap-2">
       <Button
-        className="w-full bg-slate-950 text-white hover:bg-slate-800"
-        disabled={disabled}
-        loading={mutating === configKey}
-        onClick={() => void onSubmit(configKey)}
+        className="flex-1"
+        disabled={buttonDisabled || !linked || !linkedMethodId}
+        loading={loading}
+        onClick={() => linkedMethodId && void onSync(configKey, linkedMethodId)}
         size="sm"
+        variant="outline"
       >
-        保存本浏览器
+        同步
+      </Button>
+      <Button
+        className="flex-1"
+        disabled={buttonDisabled}
+        loading={loading}
+        onClick={() => void onOpenBindingDialog(configKey, linkedMethodId)}
+        size="sm"
+        variant={hasCredential && !linked ? "default" : "outline"}
+      >
+        {hasCredential ? (linked ? "切换" : "创建") : "绑定"}
       </Button>
     </div>
   );
-}
-
-interface ActionButtonProps {
-  readonly configKey: ExchangeKey;
-  readonly disabled: boolean;
-  readonly mutating: string | null;
-  readonly onSubmit: (exchange: ExchangeKey) => Promise<void>;
 }
 
 function CredentialPreview({ credential }: { readonly credential: ExchangeCredential }) {
@@ -458,19 +653,35 @@ function CredentialPreview({ credential }: { readonly credential: ExchangeCreden
     <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2">
       <div className="flex items-center gap-2 text-xs font-medium text-emerald-800">
         <CheckCircle2Icon className="size-4" />
-        已读取交易所登录信息
+        已读取网页登录信息
       </div>
-      <code className="mt-1 block break-all font-mono text-xs text-emerald-950">
-        {maskCredential(credential.credential)}
-      </code>
       <div className="mt-2 flex items-center gap-1.5 text-[11px] text-emerald-700">
         <Clock3Icon className="size-3" />
         {formatDateTime(credential.capturedAt)} · {credential.domain}
       </div>
-      <AccountLine
-        label="当前页面账号"
-        value={credential.account?.username ?? null}
-      />
+      <AccountLine label="当前页面账号" value={credential.account?.username ?? null} />
+    </div>
+  );
+}
+
+function LinkedMethodSummary({
+  method,
+  methodId,
+}: {
+  readonly method?: ExchangeAuthMethod;
+  readonly methodId: number;
+}) {
+  const accountUsername = readAccountUsernameFromMetadata(method?.metaData);
+  return (
+    <div className="flex flex-wrap gap-2 text-xs">
+      <span className="inline-flex items-center rounded-md border border-purple-200 bg-purple-100 px-2.5 py-1 font-semibold text-purple-800">
+        记录 #{methodId}
+      </span>
+      {accountUsername ? (
+        <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-2.5 py-1 font-semibold text-amber-800">
+          昵称：{accountUsername}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -482,26 +693,14 @@ function ExistingMethodSummary({
   readonly browserProfile: BrowserProfileInfo | null;
   readonly methods: readonly ExchangeAuthMethod[];
 }) {
-  const ownCount = countBrowserProfileMethods(methods, browserProfile);
-  const taggedOtherCount = browserProfile
-    ? methods.filter((method) => readMethodProfileLabel(method) && !isSameBrowserProfile(method.metaData, browserProfile)).length
-    : 0;
-  const untaggedCount = methods.filter((method) => !readMethodProfileLabel(method)).length;
   const visibleMethods = methods.slice(0, 3);
   const hiddenCount = methods.length - visibleMethods.length;
 
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 font-medium text-slate-800">
-          <DatabaseIcon className="size-3.5" />
-          AlphaFox 已有 {methods.length} 条启用记录
-        </div>
-        {browserProfile ? (
-          <div className="text-[11px] text-slate-500">
-            本浏览器 {ownCount} 条 · 其他浏览器 {taggedOtherCount} 条 · 未标记 {untaggedCount} 条
-          </div>
-        ) : null}
+      <div className="flex items-center gap-1.5 font-medium text-slate-800">
+        <DatabaseIcon className="size-3.5" />
+        AlphaFox 共有 {methods.length} 条记录
       </div>
       <div className="mt-2 space-y-1.5">
         {visibleMethods.map((method) => (
@@ -538,8 +737,8 @@ function MethodRecordLine({
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="truncate font-mono text-[11px] text-slate-500">
-          #{method.id} · {method.credentialMasked}
+        <div className="truncate text-[11px] font-medium text-slate-600">
+          记录 #{method.id}
         </div>
         <ProfilePill browserProfile={browserProfile} method={method} />
       </div>
@@ -566,7 +765,7 @@ function ProfilePill({
     );
   }
 
-  const profileLabel = readMethodProfileLabel(method);
+  const profileLabel = readBrowserProfileLabelFromMetadata(method.metaData);
   return (
     <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">
       {profileLabel ?? "未标记"}
@@ -592,20 +791,10 @@ function AccountComparison({
     recordedAccountId,
   });
 
-  return (
-    <p className={accountComparisonClassName(status)}>
-      {accountComparisonText(status)}
-    </p>
-  );
+  return <p className={accountComparisonClassName(status)}>{accountComparisonText(status)}</p>;
 }
 
-function AccountLine({
-  label,
-  value,
-}: {
-  readonly label: string;
-  readonly value: string | null;
-}) {
+function AccountLine({ label, value }: { readonly label: string; readonly value: string | null }) {
   return (
     <div className="mt-1 text-[11px] text-slate-600">
       {label}：
@@ -628,32 +817,32 @@ function AuthMethodStatusMessage({ status }: { readonly status: AuthMethodLoadSt
   if (status === "checking") {
     return (
       <p className="rounded-xl bg-orange-50 px-3 py-2 text-xs text-orange-700">
-        正在检查 AlphaFox 是否已有该交易所启用记录...
+        正在检查 AlphaFox 是否已有该交易所记录...
       </p>
     );
   }
 
   return (
     <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">
-      AlphaFox 登录记录检查失败，请点击右上角刷新重试。
+      AlphaFox 记录检查失败，请点击右上角刷新重试。
     </p>
   );
 }
 
 function StatusPill({
-  active,
+  linked,
   status,
 }: {
-  readonly active: boolean;
+  readonly linked: boolean;
   readonly status: AuthMethodLoadStatus;
 }) {
-  const pending = !active && status === "checking";
-  const failed = !active && status === "error";
+  const pending = !linked && status === "checking";
+  const failed = !linked && status === "error";
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-        active
+        linked
           ? "bg-emerald-100 text-emerald-700"
           : pending
             ? "bg-orange-100 text-orange-700"
@@ -662,8 +851,84 @@ function StatusPill({
               : "bg-slate-100 text-slate-500"
       )}
     >
-      {active ? "已有记录" : pending ? "检查中" : failed ? "检查失败" : "未保存"}
+      {linked ? "已绑定" : pending ? "检查中" : failed ? "检查失败" : "未绑定"}
     </span>
+  );
+}
+
+function SyncDialog({
+  dialog,
+  methodsByExchange,
+  mutating,
+  onConfirm,
+  onOpenChange,
+  onSelectedMethodChange,
+}: {
+  readonly dialog: SyncDialogState | null;
+  readonly methodsByExchange: Partial<Record<ExchangeKey, readonly ExchangeAuthMethod[]>>;
+  readonly mutating: ExchangeKey | null;
+  readonly onConfirm: () => Promise<void>;
+  readonly onOpenChange: (open: boolean) => void;
+  readonly onSelectedMethodChange: (methodId: number | null) => void;
+}) {
+  const methods = dialog ? methodsByExchange[dialog.exchange] ?? [] : [];
+  const selectedValue = dialog?.selectedMethodId?.toString() ?? CREATE_RECORD_SELECT_VALUE;
+  const selectedMethodMissing = Boolean(
+    dialog?.selectedMethodId &&
+      !methods.some((method) => method.id === dialog.selectedMethodId)
+  );
+
+  return (
+    <Dialog open={Boolean(dialog)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{dialog?.selectedMethodId ? "绑定到现有记录" : "创建新记录"}</DialogTitle>
+          <DialogDescription>
+            选择这次要更新的 AlphaFox 记录；如果不选择，会创建一条新记录。
+          </DialogDescription>
+        </DialogHeader>
+        {dialog ? (
+          <div className="space-y-3">
+            <Select
+              value={selectedValue}
+              onValueChange={(value) => {
+                onSelectedMethodChange(parseSelectedMethodId(value));
+              }}
+            >
+              <SelectTrigger className="h-auto min-h-10">
+                <SelectValue placeholder="选择记录" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={CREATE_RECORD_SELECT_VALUE}>创建新记录</SelectItem>
+                {dialog?.selectedMethodId && selectedMethodMissing ? (
+                  <SelectItem value={dialog.selectedMethodId.toString()}>
+                    当前绑定记录 #{dialog.selectedMethodId}
+                  </SelectItem>
+                ) : null}
+                {methods.map((method) => (
+                  <SelectItem key={method.id} value={method.id.toString()}>
+                    {formatMethodSelectLabel(method)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <CredentialPreview credential={dialog.credential} />
+          </div>
+        ) : null}
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">取消</Button>
+          </DialogClose>
+          <Button
+            disabled={!dialog || Boolean(mutating)}
+            loading={Boolean(mutating)}
+            onClick={() => void onConfirm()}
+          >
+            {dialog?.selectedMethodId ? "绑定并同步" : "创建"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -763,15 +1028,106 @@ function selectComparisonMethod(
   );
 }
 
-function countBrowserProfileMethods(
-  methods: readonly ExchangeAuthMethod[],
-  browserProfile: BrowserProfileInfo | null
-): number {
-  return methods.filter((method) => isSameBrowserProfile(method.metaData, browserProfile)).length;
+function inferBrowserProfileLinks(
+  linkedStatuses: LinkedStatusMap,
+  authMethods: readonly ExchangeAuthMethod[],
+  browserProfile: BrowserProfileInfo
+): LinkedStatusMap {
+  const nextStatuses: LinkedStatusMap = { ...linkedStatuses };
+  const ownMethodsByExchange = new Map<ExchangeKey, ExchangeAuthMethod>();
+
+  for (const method of authMethods) {
+    if (
+      !isExchangeKeyString(method.exchange) ||
+      !isSameBrowserProfile(method.metaData, browserProfile)
+    ) {
+      continue;
+    }
+    ownMethodsByExchange.set(method.exchange, method);
+  }
+
+  for (const config of EXCHANGE_CONFIGS) {
+    if (nextStatuses[config.key]) {
+      continue;
+    }
+    const ownMethod = ownMethodsByExchange.get(config.key);
+    if (ownMethod?.authType === config.authType) {
+      nextStatuses[config.key] = ownMethod.id;
+    }
+  }
+
+  return nextStatuses;
 }
 
-function readMethodProfileLabel(method: ExchangeAuthMethod): string | null {
-  return readBrowserProfileLabelFromMetadata(method.metaData);
+async function readLinkedStatuses(
+  browserProfile: BrowserProfileInfo
+): Promise<LinkedStatusMap> {
+  const result = await chrome.storage.local.get(linkedStatusStorageKey(browserProfile));
+  return parseLinkedStatuses(result[linkedStatusStorageKey(browserProfile)]);
+}
+
+async function writeLinkedStatuses(
+  browserProfile: BrowserProfileInfo,
+  linkedStatuses: LinkedStatusMap
+): Promise<void> {
+  await chrome.storage.local.set({
+    [linkedStatusStorageKey(browserProfile)]: linkedStatuses,
+  });
+}
+
+function linkedStatusStorageKey(browserProfile: BrowserProfileInfo): string {
+  return `alphafox:linkedAuthMethods:${browserProfile.id}`;
+}
+
+function parseLinkedStatuses(value: unknown): LinkedStatusMap {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const entries = Object.entries(value).filter(([exchange, id]) => {
+    return isExchangeKeyString(exchange) && isPositiveInteger(id);
+  });
+  return Object.fromEntries(entries.map(([exchange, id]) => [exchange, Number(id)]));
+}
+
+function linkedStatusesEqual(left: LinkedStatusMap, right: LinkedStatusMap): boolean {
+  return EXCHANGE_CONFIGS.every((config) => left[config.key] === right[config.key]);
+}
+
+function findMethodById(
+  methods: readonly ExchangeAuthMethod[],
+  methodId: number | undefined
+): ExchangeAuthMethod | undefined {
+  if (!methodId) {
+    return undefined;
+  }
+  return methods.find((method) => method.id === methodId);
+}
+
+function parseSelectedMethodId(value: string): number | null {
+  if (value === CREATE_RECORD_SELECT_VALUE) {
+    return null;
+  }
+
+  const id = Number(value);
+  if (!Number.isInteger(id) || id <= 0) {
+    throw new Error("AlphaFox 记录编号无效");
+  }
+  return id;
+}
+
+function formatMethodSelectLabel(method: ExchangeAuthMethod): string {
+  const username = readAccountUsernameFromMetadata(method.metaData);
+  const profileLabel = readBrowserProfileLabelFromMetadata(method.metaData);
+  const parts = [`#${method.id}`];
+  if (username) {
+    parts.push(username);
+  }
+  if (profileLabel) {
+    parts.push(profileLabel);
+  }
+  parts.push(formatDateTime(method.updatedAt));
+  return parts.join(" · ");
 }
 
 function compareAccounts({
@@ -809,9 +1165,7 @@ function accountComparisonText(status: ReturnType<typeof compareAccounts>): stri
   return "账号无法判断：当前页面或已记录登录信息缺少可识别账号名。";
 }
 
-function accountComparisonClassName(
-  status: ReturnType<typeof compareAccounts>
-): string {
+function accountComparisonClassName(status: ReturnType<typeof compareAccounts>): string {
   return cn(
     "rounded-xl px-3 py-2 text-xs",
     status === "match"
@@ -820,6 +1174,12 @@ function accountComparisonClassName(
         ? "bg-red-50 text-red-600"
         : "bg-amber-50 text-amber-700"
   );
+}
+
+function assertSavedMethod(method: ExchangeAuthMethod): void {
+  if (!Number.isInteger(method.id) || method.id <= 0) {
+    throw new Error("AlphaFox 未返回有效的记录编号");
+  }
 }
 
 function isRuntimeError(value: unknown): value is { readonly ok: false; readonly error: string } {
@@ -862,6 +1222,15 @@ function isExchangeCredential(value: unknown): value is ExchangeCredential {
       typeof Reflect.get(value, "capturedAt") === "string" &&
       typeof Reflect.get(value, "domain") === "string"
   );
+}
+
+function isExchangeKeyString(value: string): value is ExchangeKey {
+  return EXCHANGE_CONFIGS.some((config) => config.key === value);
+}
+
+function isPositiveInteger(value: unknown): boolean {
+  const numberValue = Number(value);
+  return Number.isInteger(numberValue) && numberValue > 0;
 }
 
 function formatDateTime(value: string): string {

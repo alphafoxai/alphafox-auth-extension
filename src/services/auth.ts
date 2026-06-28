@@ -47,11 +47,26 @@ export class AuthService {
     return groups.flat().sort(compareMethodUpdatedAtDesc);
   }
 
-  static async createAuthMethod(input: AuthMethodInput): Promise<void> {
-    await requestJson<{ readonly method: ExchangeAuthMethod }>("", {
+  static async createAuthMethod(input: AuthMethodInput): Promise<ExchangeAuthMethod> {
+    const data = await requestJson<{ readonly method: ExchangeAuthMethod }>("", {
       method: "POST",
       body: JSON.stringify(input),
     });
+    return data.method;
+  }
+
+  static async updateAuthMethod(
+    id: number,
+    input: AuthMethodInput
+  ): Promise<ExchangeAuthMethod> {
+    const data = await requestJson<{ readonly method: ExchangeAuthMethod }>(
+      `/${encodeURIComponent(id)}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(input),
+      }
+    );
+    return data.method;
   }
 
   static async deleteAuthMethod(id: number): Promise<void> {

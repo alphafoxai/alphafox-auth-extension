@@ -212,7 +212,7 @@ export default function Popup() {
   }
 
   return (
-    <main className="w-[520px] max-h-[640px] overflow-auto bg-gradient-to-br from-slate-50 via-white to-orange-50 text-slate-950 hide-scrollbar">
+    <main className="w-[700px] max-h-[600px] overflow-auto bg-gradient-to-br from-slate-50 via-white to-orange-50 text-slate-950 hide-scrollbar">
       <div className="p-5">
         {loading && !session ? <LoadingState /> : null}
         {!loading && !session ? (

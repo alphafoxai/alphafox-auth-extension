@@ -54,7 +54,7 @@ try {
   installServiceMocks();
   cleanup = await runOkxOnDemandCaptureTest(server);
   cleanup();
-  console.log("✓ OKX 保存本浏览器会按需抓取并提交 authorization 凭证");
+  console.log("✓ OKX 旧流程创建会按需抓取并提交登录信息");
 
   installServiceMocks();
   cleanup = await runCachedPopupStartupTest(server);
@@ -102,7 +102,16 @@ function installDomGlobals() {
   globalThis.self = dom.window;
   globalThis.HTMLElement = dom.window.HTMLElement;
   globalThis.HTMLButtonElement = dom.window.HTMLButtonElement;
+  globalThis.HTMLInputElement = dom.window.HTMLInputElement;
+  globalThis.HTMLTextAreaElement = dom.window.HTMLTextAreaElement;
+  globalThis.Element = dom.window.Element;
+  globalThis.Node = dom.window.Node;
+  globalThis.NodeFilter = dom.window.NodeFilter;
+  globalThis.DocumentFragment = dom.window.DocumentFragment;
+  globalThis.Event = dom.window.Event;
+  globalThis.CustomEvent = dom.window.CustomEvent;
   globalThis.MutationObserver = dom.window.MutationObserver;
+  globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   Object.defineProperty(globalThis, "navigator", {
     configurable: true,
@@ -112,7 +121,24 @@ function installDomGlobals() {
 
 function installServiceMocks() {
   globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__ = {
-    createAuthMethod: createMock(),
+    createAuthMethod: createMock((input) => ({
+      id: 303,
+      exchange: input.exchange,
+      authType: input.authType,
+      credentialMasked: "okx...oken",
+      metaData: input.metaData,
+      isActive: true,
+      updatedAt: "2026-06-28T10:00:00.000Z",
+    })),
+    updateAuthMethod: createMock((id, input) => ({
+      id,
+      exchange: input.exchange,
+      authType: input.authType,
+      credentialMasked: "new...oken",
+      metaData: input.metaData,
+      isActive: true,
+      updatedAt: "2026-06-28T10:00:00.000Z",
+    })),
     deleteAuthMethod: createMock(),
     getCurrentSession: createMock(() => null),
     listAuthMethods: createMock(() => []),
@@ -171,17 +197,20 @@ async function runOkxOnDemandCaptureTest(testServer) {
     })
   );
 
-  await waitFor(() => assert.ok(screen.getByText("浏览器配置 TEST01")));
-  const okxCreateButton = await waitFor(() => {
+  await waitFor(() => assert.ok(screen.getByText("使用说明")));
+  const okxBindButton = await waitFor(() => {
     const button = within(getExchangeCard(screen, "OKX")).getByRole("button", {
-      name: "保存本浏览器",
+      name: "绑定",
     });
     assert.equal(button.disabled, false);
     return button;
   });
-  fireEvent.click(okxCreateButton);
+  fireEvent.click(okxBindButton);
 
   await waitFor(() => assertCaptureWasRequested(sendMessage.calls));
+  const dialog = await waitFor(() => screen.getByRole("dialog"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "创建" }));
+
   await waitFor(() => assertCreateWasSubmitted());
   assert.equal(onMethodsChanged.calls.length, 1);
 
@@ -261,11 +290,11 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
 
   await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
   let binanceCard = getExchangeCard(screen, "Binance");
+  assert.ok(within(binanceCard).getByText("检查中"));
   assert.equal(
-    within(binanceCard).queryByRole("button", { name: "保存本浏览器" }),
-    null
+    within(binanceCard).getByRole("button", { name: "同步" }).disabled,
+    true
   );
-  assert.ok(within(binanceCard).getByRole("button", { name: "检查中" }));
 
   await testingLibrary.act(async () => {
     pendingMethods.binance.resolve([BINANCE_METHOD]);
@@ -273,8 +302,12 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   });
   await waitFor(() => {
     binanceCard = getExchangeCard(screen, "Binance");
-    assert.ok(within(binanceCard).getByRole("button", { name: "保存本浏览器" }));
-    assert.ok(within(binanceCard).getByText(/本浏览器 1 条/));
+    assert.ok(within(binanceCard).getByText("已绑定"));
+    assert.equal(
+      within(binanceCard).getByRole("button", { name: "同步" }).disabled,
+      false
+    );
+    assert.ok(within(binanceCard).getAllByText("记录 #101").length > 0);
   });
 
   await testingLibrary.act(async () => {

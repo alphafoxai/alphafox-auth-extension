@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AlphaFox Auth Sync",
   "version": "2.1.0",
-  "description": "Read supported exchange cookies and sync credentials to AlphaFox.",
+  "description": "Sync supported exchange web login information to AlphaFox.",
   "permissions": [
     "cookies",
     "storage",

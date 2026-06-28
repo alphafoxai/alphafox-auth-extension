@@ -9,6 +9,8 @@ export const AuthService = {
     globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAllAuthMethods(...args),
   createAuthMethod: (...args) =>
     globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod(...args),
+  updateAuthMethod: (...args) =>
+    globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod(...args),
   openLoginPage: (...args) =>
     globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.openLoginPage(...args),
 };
