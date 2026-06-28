@@ -10,7 +10,7 @@ import {
   type ExchangeRequestHeader,
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
-import { fetchOkxAccountProfile } from "@/background/okx-account-profile";
+import { fetchExchangeAccountProfile } from "@/background/exchange-account-profiles";
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -161,7 +161,6 @@ async function buildAndSaveExchangeCredential(
   }
 
   const enrichedCredential = await enrichExchangeCredential(
-    config,
     credential,
     cookies,
     requestHeaders
@@ -193,18 +192,14 @@ function buildExchangeCredential(
 }
 
 async function enrichExchangeCredential(
-  config: ExchangeConfig,
   credential: ExchangeCredential,
   cookies: readonly ExchangeCookie[],
   requestHeaders: readonly ExchangeRequestHeader[]
 ): Promise<ExchangeCredential> {
   const localAccount = detectExchangeAccount({ cookies, requestHeaders });
-  if (config.key !== "okx" || config.authType !== "authorization") {
-    return localAccount ? { ...credential, account: localAccount } : credential;
-  }
 
   try {
-    const profileAccount = await fetchOkxAccountProfile(credential.credential);
+    const profileAccount = await fetchExchangeAccountProfile(credential);
     return { ...credential, account: profileAccount };
   } catch (error) {
     return {

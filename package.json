@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "dev": "tsc && vite build --watch",
     "check": "tsc --noEmit",
-    "test": "node scripts/test-popup-regression.mjs",
+    "test": "node scripts/test-popup-regression.mjs && node scripts/test-exchange-account-profiles.mjs",
     "zip": "rm -f alphafox-auth-extension.zip && cd dist && zip -r ../alphafox-auth-extension.zip . -x '*.DS_Store' && cd .."
   },
   "dependencies": {
