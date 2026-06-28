@@ -72,6 +72,11 @@ try {
   console.log("✓ 插件会展示当前页面账号与 AlphaFox 已记录账号对比");
 
   installServiceMocks();
+  cleanup = await runUnknownAccountComparisonHiddenTest(server);
+  cleanup();
+  console.log("✓ 账号未知时不会展示账号判断提示");
+
+  installServiceMocks();
   cleanup = await runOkxHostCookieCaptureTest(server);
   cleanup();
   console.log("✓ OKX 按需抓取会读取当前 okx.com 标签页域名 Cookie");
@@ -357,6 +362,46 @@ async function runAccountComparisonDisplayTest(testServer) {
   assert.ok(screen.getByText(/已记录账号：/));
   assert.ok(screen.getByText("okx-recorded-user"));
   assert.ok(screen.getByText(/账号不同/));
+
+  return testingLibrary.cleanup;
+}
+
+async function runUnknownAccountComparisonHiddenTest(testServer) {
+  const credentialWithoutAccount = { ...OKX_CREDENTIAL, account: undefined };
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { okx: credentialWithoutAccount })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethods: [
+        {
+          id: 203,
+          exchange: "okx",
+          authType: "authorization",
+          credentialMasked: "old...oken",
+          metaData: {},
+          isActive: true,
+          updatedAt: "2026-06-28T09:00:00.000Z",
+        },
+      ],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText(/当前页面账号：/)));
+  assert.equal(screen.queryByText(/^账号.*判断/), null);
+  assert.equal(screen.queryByText(/^账号一致/), null);
+  assert.equal(screen.queryByText(/^账号不同/), null);
 
   return testingLibrary.cleanup;
 }

@@ -790,6 +790,9 @@ function AccountComparison({
     recordedAccount,
     recordedAccountId,
   });
+  if (status === "unknown") {
+    return null;
+  }
 
   return <p className={accountComparisonClassName(status)}>{accountComparisonText(status)}</p>;
 }
@@ -1130,6 +1133,9 @@ function formatMethodSelectLabel(method: ExchangeAuthMethod): string {
   return parts.join(" · ");
 }
 
+type AccountComparisonStatus = "match" | "mismatch" | "unknown";
+type KnownAccountComparisonStatus = Exclude<AccountComparisonStatus, "unknown">;
+
 function compareAccounts({
   currentAccount,
   currentAccountId,
@@ -1140,7 +1146,7 @@ function compareAccounts({
   readonly currentAccountId: string | null;
   readonly recordedAccount: string | null;
   readonly recordedAccountId: string | null;
-}): "match" | "mismatch" | "unknown" {
+}): AccountComparisonStatus {
   const currentId = normalizeAccountUsername(currentAccountId);
   const recordedId = normalizeAccountUsername(recordedAccountId);
   if (currentId && recordedId) {
@@ -1155,24 +1161,16 @@ function compareAccounts({
   return current === recorded ? "match" : "mismatch";
 }
 
-function accountComparisonText(status: ReturnType<typeof compareAccounts>): string {
-  if (status === "match") {
-    return "账号一致：当前页面账号与 AlphaFox 已记录账号相同。";
-  }
-  if (status === "mismatch") {
-    return "账号不同：保存前请确认当前浏览器是否登录了正确账号。";
-  }
-  return "账号无法判断：当前页面或已记录登录信息缺少可识别账号名。";
+function accountComparisonText(status: KnownAccountComparisonStatus): string {
+  return status === "match"
+    ? "账号一致：当前页面账号与 AlphaFox 已记录账号相同。"
+    : "账号不同：保存前请确认当前浏览器是否登录了正确账号。";
 }
 
-function accountComparisonClassName(status: ReturnType<typeof compareAccounts>): string {
+function accountComparisonClassName(status: KnownAccountComparisonStatus): string {
   return cn(
     "rounded-xl px-3 py-2 text-xs",
-    status === "match"
-      ? "bg-emerald-50 text-emerald-700"
-      : status === "mismatch"
-        ? "bg-red-50 text-red-600"
-        : "bg-amber-50 text-amber-700"
+    status === "match" ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"
   );
 }
 
