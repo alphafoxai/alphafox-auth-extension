@@ -103,7 +103,7 @@ export default function Popup() {
       );
 
       if (failures.length > 0) {
-        throw new Error(`刷新 AlphaFox 凭证失败：${failures.join("；")}`);
+        throw new Error(`刷新 AlphaFox 登录记录失败：${failures.join("；")}`);
       }
 
       await PopupStateCache.write(nextSession, authMethodsRef.current);
@@ -179,9 +179,10 @@ export default function Popup() {
   }
 
   function handleDelete(method: ExchangeAuthMethod) {
+    const exchangeLabel = readExchangeLabel(method.exchange);
     showAlert({
-      title: "确认删除凭证",
-      message: `确定删除 ${method.exchange} / ${method.authType} 凭证 #${method.id} 吗？删除后 AlphaFox 将不再使用这条 active 记录。`,
+      title: "确认删除登录记录",
+      message: `确定删除 ${exchangeLabel} 登录记录 #${method.id} 吗？删除后 AlphaFox 将不再使用这条记录。`,
       type: "confirm",
       onConfirm: () => void deleteAuthMethod(method),
     });
@@ -195,7 +196,7 @@ export default function Popup() {
       setAlert({
         show: true,
         title: "删除成功",
-        message: "该交易所凭证已从 AlphaFox 移除。",
+        message: "该交易所登录记录已从 AlphaFox 移除。",
         type: "info",
       });
     } catch (err) {
@@ -295,7 +296,7 @@ function Header({
         </div>
         <div className="flex gap-2">
           <Button
-            aria-label="刷新 AlphaFox 登录态与凭证列表"
+            aria-label="刷新 AlphaFox 登录状态与同步列表"
             loading={loading}
             onClick={onRefresh}
             size="icon"
@@ -319,6 +320,10 @@ function Header({
   );
 }
 
+function readExchangeLabel(exchange: string): string {
+  return EXCHANGE_CONFIGS.find((config) => config.key === exchange)?.label ?? exchange;
+}
+
 function readHeaderStatusText({
   loading,
   verified,
@@ -327,7 +332,7 @@ function readHeaderStatusText({
   readonly verified: boolean;
 }): string {
   if (loading && !verified) {
-    return "正在验证 AlphaFox 登录态...";
+    return "正在验证 AlphaFox 登录状态...";
   }
   if (loading) {
     return "正在刷新插件数据...";
@@ -342,7 +347,7 @@ function LoadingState() {
   return (
     <div className="flex h-56 flex-col items-center justify-center gap-4 text-slate-600">
       <LoaderIcon className="size-8 animate-spin text-orange-500" />
-      <p className="text-sm font-medium">正在检测 AlphaFox 登录态...</p>
+      <p className="text-sm font-medium">正在检测 AlphaFox 登录状态...</p>
     </div>
   );
 }

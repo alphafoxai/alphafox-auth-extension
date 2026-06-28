@@ -41,7 +41,7 @@ export function AuthMethodsList({
 function EmptyMethods() {
   return (
     <div className="rounded-2xl border border-dashed border-slate-300 bg-white/70 p-5 text-center text-sm text-slate-500">
-      AlphaFox 暂无已保存的交易所凭证。
+      AlphaFox 暂无已保存的交易所登录记录。
     </div>
   );
 }
@@ -50,9 +50,9 @@ function MethodsHeader({ count }: { readonly count: number }) {
   return (
     <div className="flex items-center justify-between">
       <h2 id="saved-methods-title" className="text-sm font-semibold text-slate-700">
-        AlphaFox 已保存凭证
+        AlphaFox 已保存登录记录
       </h2>
-      <span className="text-xs text-slate-500">{count} 条 active</span>
+      <span className="text-xs text-slate-500">{count} 条启用中</span>
     </div>
   );
 }
@@ -71,7 +71,7 @@ function MethodRow({
       <ExchangeAvatar exchange={method.exchange} />
       <MethodSummary method={method} />
       <IconButton
-        aria-label={`删除 ${exchangeLabel(method.exchange)} 凭证`}
+        aria-label={`删除 ${exchangeLabel(method.exchange)} 登录记录`}
         className="shrink-0 text-red-600 hover:bg-red-50 hover:text-red-700"
         loading={actionLoading === method.id}
         onClick={() => onDelete(method)}
@@ -90,7 +90,6 @@ function MethodSummary({ method }: { readonly method: ExchangeAuthMethod }) {
         <span className="font-medium text-slate-950">
           {exchangeLabel(method.exchange)}
         </span>
-        <AuthTypeBadge authType={method.authType} />
         <ActiveBadge active={method.isActive} />
       </div>
       <div className="mt-1 truncate font-mono text-xs text-slate-500">
@@ -113,14 +112,6 @@ function ExchangeAvatar({ exchange }: { readonly exchange: string }) {
   );
 }
 
-function AuthTypeBadge({ authType }: { readonly authType: string }) {
-  return (
-    <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-700">
-      {authType}
-    </span>
-  );
-}
-
 function ActiveBadge({ active }: { readonly active: boolean }) {
   return (
     <span
@@ -129,7 +120,7 @@ function ActiveBadge({ active }: { readonly active: boolean }) {
         active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
       )}
     >
-      {active ? "active" : "inactive"}
+      {active ? "启用中" : "已停用"}
     </span>
   );
 }

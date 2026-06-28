@@ -44,7 +44,7 @@ function SecurityNotice() {
       <div className="flex gap-3">
         <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-orange-600" />
         <p>
-          插件不保存 AlphaFox 密码，只复用浏览器中的 AlphaFox 登录态向官方 API 提交交易所凭证。
+          插件不保存 AlphaFox 密码，只复用浏览器中的 AlphaFox 登录状态向官方服务提交交易所登录信息。
         </p>
       </div>
     </div>
@@ -77,7 +77,7 @@ function LoginActions({ loading, onOpenLogin, onRefresh }: LoginFormProps) {
         type="button"
         variant="outline"
       >
-        重新检测登录态
+        重新检测登录状态
         <RefreshCwIcon className="ml-2 size-4" />
       </Button>
     </div>

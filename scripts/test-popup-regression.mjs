@@ -203,8 +203,8 @@ async function runCachedPopupStartupTest(testServer) {
   render(React.createElement(popupModule.default));
 
   await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
-  assert.equal(screen.queryByText("正在检测 AlphaFox 登录态..."), null);
-  assert.ok(screen.getByText("正在验证 AlphaFox 登录态..."));
+  assert.equal(screen.queryByText("正在检测 AlphaFox 登录状态..."), null);
+  assert.ok(screen.getByText("正在验证 AlphaFox 登录状态..."));
 
   await testingLibrary.act(async () => {
     sessionRequest.resolve(CACHED_SESSION);

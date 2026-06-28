@@ -101,7 +101,7 @@ function useStoredCredentials() {
     try {
       await requestAllExchangeCapture();
       await refreshCredentials();
-      toast.success("已扫描所有支持交易所登录凭证");
+      toast.success("已扫描所有支持交易所登录信息");
     } catch (error) {
       toast.error(readErrorMessage(error));
     } finally {
@@ -157,7 +157,7 @@ function useCredentialSubmission({
 
     const config = getExchangeConfig(exchange);
     throw new Error(
-      `未读取到 ${config.label} 登录凭证。请确认已登录 ${config.label}，或重新打开 ${config.domains[0]} 后再点击立即刷新/重试。`
+      `未读取到 ${config.label} 登录信息。请确认已登录 ${config.label}，或重新打开 ${config.domains[0]} 后再点击立即刷新/重试。`
     );
   }
 
@@ -174,7 +174,7 @@ function InstructionCard() {
             创建与同步已拆分
           </h2>
           <p>
-            首次接入交易所时使用「首次创建」。后续 Cookie 过期或重新登录交易所后，使用「同步最新」。
+            首次接入交易所时使用「首次创建」。后续登录状态失效或重新登录交易所后，使用「同步最新」。
           </p>
         </div>
       </div>
@@ -297,7 +297,7 @@ function ExchangeCardBody({
         <AuthMethodStatusMessage status={authMethodStatus} />
       ) : (
         <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-500">
-          AlphaFox 暂无该交易所凭证，请先创建。
+          AlphaFox 暂无该交易所登录记录，请先创建。
         </p>
       )}
       {latestMethod ? (
@@ -430,7 +430,7 @@ function CredentialPreview({ credential }: { readonly credential: ExchangeCreden
     <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 px-3 py-2">
       <div className="flex items-center gap-2 text-xs font-medium text-emerald-800">
         <CheckCircle2Icon className="size-4" />
-        已读取登录凭证
+        已读取交易所登录信息
       </div>
       <code className="mt-1 block break-all font-mono text-xs text-emerald-950">
         {maskCredential(credential.credential)}
@@ -457,7 +457,7 @@ function ExistingMethodSummary({
     <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
       <div className="flex items-center gap-1.5 font-medium text-slate-800">
         <DatabaseIcon className="size-3.5" />
-        AlphaFox 已有 {methods.length} 条 active 凭证
+        AlphaFox 已有 {methods.length} 条启用记录
       </div>
       {latest ? <LatestMethodLine method={latest} /> : null}
     </div>
@@ -530,14 +530,14 @@ function AuthMethodStatusMessage({ status }: { readonly status: AuthMethodLoadSt
   if (status === "checking") {
     return (
       <p className="rounded-xl bg-orange-50 px-3 py-2 text-xs text-orange-700">
-        正在检查 AlphaFox 是否已有该交易所 active 凭证...
+        正在检查 AlphaFox 是否已有该交易所启用记录...
       </p>
     );
   }
 
   return (
     <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">
-      AlphaFox 凭证检查失败，请点击右上角刷新重试。
+      AlphaFox 登录记录检查失败，请点击右上角刷新重试。
     </p>
   );
 }
@@ -606,7 +606,7 @@ async function requestExchangeCredentialCapture(
   if (isCaptureResponse(response)) {
     return response.credential;
   }
-  throw new Error("插件后台返回了无法识别的交易所凭证结果");
+  throw new Error("插件后台返回了无法识别的交易所登录信息");
 }
 
 async function submitAuthMethod(
@@ -692,9 +692,9 @@ function accountComparisonText(status: ReturnType<typeof compareAccounts>): stri
     return "账号一致：当前页面账号与 AlphaFox 已记录账号相同。";
   }
   if (status === "mismatch") {
-    return "账号不同：同步前请确认是否要用当前页面账号覆盖已记录凭证。";
+    return "账号不同：同步前请确认是否要用当前页面账号覆盖已记录登录信息。";
   }
-  return "账号无法判断：当前页面或已记录凭证缺少可识别账号名。";
+  return "账号无法判断：当前页面或已记录登录信息缺少可识别账号名。";
 }
 
 function accountComparisonClassName(
