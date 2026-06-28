@@ -16,6 +16,7 @@ const OKX_CREDENTIAL = {
   account: {
     username: "okx-current-user",
     source: "cookie:userInfo",
+    id: "okx-current-uuid",
   },
 };
 const OKX_AUTHORIZATION_JWT = `Bearer jwt.${Buffer.from(
@@ -321,6 +322,7 @@ async function runOkxHostCookieCaptureTest(testServer) {
     sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
     storageData,
   });
+  globalThis.fetch = createOkxProfileFetchMock();
   chromeMock.runtime.onMessage = {
     addListener: createMock((listener) => {
       runtimeListener = listener;
@@ -377,8 +379,9 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   const { requestListener, runtimeListener, storageData } =
     await loadBackgroundWithRequestCapture(
       testServer,
-      "okx-authorization-header"
-  );
+      "okx-authorization-header",
+      createOkxProfileFetchMock()
+    );
 
   await requestListener({
     url: "https://www.okx.com/priapi/v5/account/balance",
@@ -397,7 +400,9 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   assert.equal(response.credential?.exchange, "okx");
   assert.equal(response.credential?.authType, "authorization");
   assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT);
-  assert.equal(response.credential?.account?.username, "okx-header-user");
+  assert.equal(response.credential?.account?.username, "okx-profile-user");
+  assert.equal(response.credential?.account?.id, "okx-profile-uuid");
+  assert.equal(response.credential?.account?.source, "okx:user-security-profile");
 
   return () => {};
 }
@@ -406,8 +411,11 @@ async function runOkxRequestCookieHeaderCaptureTest(testServer) {
   const { requestListener, runtimeListener, storageData } =
     await loadBackgroundWithRequestCapture(
       testServer,
-      "okx-cookie-header"
-  );
+      "okx-cookie-header",
+      createOkxProfileFetchMock({
+        payload: { code: "401", msg: "not authorized", data: null },
+      })
+    );
 
   await requestListener({
     url: "https://www.okx.com/priapi/v5/account/balance",
@@ -431,11 +439,15 @@ async function runOkxRequestCookieHeaderCaptureTest(testServer) {
   assert.equal(response.credential?.authType, "authorization");
   assert.equal(response.credential?.credential, "okx-cookie-header-token");
   assert.equal(response.credential?.account?.username, "okx-cookie-user");
+  assert.equal(
+    response.credential?.accountLookupError,
+    "OKX 用户资料请求被拒绝：not authorized"
+  );
 
   return () => {};
 }
 
-async function loadBackgroundWithRequestCapture(testServer, caseName) {
+async function loadBackgroundWithRequestCapture(testServer, caseName, fetchMock) {
   const storageData = {};
   let runtimeListener;
   let requestListener;
@@ -467,6 +479,7 @@ async function loadBackgroundWithRequestCapture(testServer, caseName) {
     getAll: createMock(() => []),
   };
   globalThis.chrome = chromeMock;
+  globalThis.fetch = fetchMock;
 
   await testServer.ssrLoadModule(
     `/src/background/background.ts?case=${caseName}-${Date.now()}`
@@ -514,6 +527,8 @@ function assertCreateWasSubmitted() {
         nickname: "okx-current-user",
         exchangeAccountUsername: "okx-current-user",
         exchangeAccountSource: "cookie:userInfo",
+        uuid: "okx-current-uuid",
+        exchangeAccountId: "okx-current-uuid",
       },
     }
   );
@@ -600,4 +615,24 @@ function createDeferred() {
     resolve = nextResolve;
   });
   return { promise, resolve };
+}
+
+function createOkxProfileFetchMock({
+  payload = {
+    code: "0",
+    data: { nickName: "okx-profile-user", uuid: "okx-profile-uuid" },
+    msg: "",
+  },
+  ok = true,
+  status = 200,
+} = {}) {
+  return createMock(async (url, init) => {
+    assert.equal(url, "https://www.okx.com/v3/users/security/profile");
+    assert.ok(init?.headers?.authorization);
+    return {
+      ok,
+      status,
+      json: async () => payload,
+    };
+  });
 }

@@ -18,6 +18,7 @@ import {
 } from "@/config/exchanges";
 import {
   normalizeAccountUsername,
+  readAccountIdFromMetadata,
   readAccountUsernameFromMetadata,
 } from "@/lib/account-metadata";
 import { cn } from "@/lib/utils";
@@ -442,6 +443,11 @@ function CredentialPreview({ credential }: { readonly credential: ExchangeCreden
         label="当前页面账号"
         value={credential.account?.username ?? null}
       />
+      {credential.accountLookupError ? (
+        <div className="mt-1 text-[11px] text-amber-700">
+          账号识别失败：{credential.accountLookupError}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -483,8 +489,15 @@ function AccountComparison({
   readonly method: ExchangeAuthMethod;
 }) {
   const currentAccount = credential?.account?.username ?? null;
+  const currentAccountId = credential?.account?.id ?? null;
   const recordedAccount = readAccountUsernameFromMetadata(method.metaData);
-  const status = compareAccounts(currentAccount, recordedAccount);
+  const recordedAccountId = readAccountIdFromMetadata(method.metaData);
+  const status = compareAccounts({
+    currentAccount,
+    currentAccountId,
+    recordedAccount,
+    recordedAccountId,
+  });
 
   return (
     <p className={accountComparisonClassName(status)}>
@@ -628,6 +641,7 @@ function groupMethodsByExchange(
 
 function toAuthMethodInput(credential: ExchangeCredential): AuthMethodInput {
   const accountUsername = credential.account?.username;
+  const accountId = credential.account?.id;
   return {
     exchange: credential.exchange,
     authType: credential.authType,
@@ -641,16 +655,35 @@ function toAuthMethodInput(credential: ExchangeCredential): AuthMethodInput {
             nickname: accountUsername,
             exchangeAccountUsername: accountUsername,
             exchangeAccountSource: credential.account?.source,
+            ...(accountId
+              ? {
+                  uuid: accountId,
+                  exchangeAccountId: accountId,
+                }
+              : {}),
           }
         : {}),
     },
   };
 }
 
-function compareAccounts(
-  currentAccount: string | null,
-  recordedAccount: string | null
-): "match" | "mismatch" | "unknown" {
+function compareAccounts({
+  currentAccount,
+  currentAccountId,
+  recordedAccount,
+  recordedAccountId,
+}: {
+  readonly currentAccount: string | null;
+  readonly currentAccountId: string | null;
+  readonly recordedAccount: string | null;
+  readonly recordedAccountId: string | null;
+}): "match" | "mismatch" | "unknown" {
+  const currentId = normalizeAccountUsername(currentAccountId);
+  const recordedId = normalizeAccountUsername(recordedAccountId);
+  if (currentId && recordedId) {
+    return currentId === recordedId ? "match" : "mismatch";
+  }
+
   const current = normalizeAccountUsername(currentAccount);
   const recorded = normalizeAccountUsername(recordedAccount);
   if (!current || !recorded) {

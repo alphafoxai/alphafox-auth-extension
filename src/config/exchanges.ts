@@ -13,6 +13,7 @@ export interface ExchangeRequestHeader {
 export interface ExchangeAccountInfo {
   readonly username: string;
   readonly source: string;
+  readonly id?: string;
 }
 
 export interface ExchangeCredential {
@@ -23,6 +24,7 @@ export interface ExchangeCredential {
   readonly domain: string;
   readonly sourceCookieNames: readonly string[];
   readonly account?: ExchangeAccountInfo;
+  readonly accountLookupError?: string;
 }
 
 export interface ExchangeConfig {

@@ -10,6 +10,7 @@ import {
   type ExchangeRequestHeader,
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
+import { fetchOkxAccountProfile } from "@/background/okx-account-profile";
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -159,8 +160,14 @@ async function buildAndSaveExchangeCredential(
     return null;
   }
 
-  await saveCredential(credential);
-  return credential;
+  const enrichedCredential = await enrichExchangeCredential(
+    config,
+    credential,
+    cookies,
+    requestHeaders
+  );
+  await saveCredential(enrichedCredential);
+  return enrichedCredential;
 }
 
 function buildExchangeCredential(
@@ -175,7 +182,6 @@ function buildExchangeCredential(
     return null;
   }
 
-  const account = detectExchangeAccount({ cookies, requestHeaders });
   return {
     exchange: config.key,
     authType: config.authType,
@@ -183,8 +189,30 @@ function buildExchangeCredential(
     capturedAt: new Date().toISOString(),
     domain,
     sourceCookieNames: config.requiredCookieNames,
-    ...(account ? { account } : {}),
   };
+}
+
+async function enrichExchangeCredential(
+  config: ExchangeConfig,
+  credential: ExchangeCredential,
+  cookies: readonly ExchangeCookie[],
+  requestHeaders: readonly ExchangeRequestHeader[]
+): Promise<ExchangeCredential> {
+  const localAccount = detectExchangeAccount({ cookies, requestHeaders });
+  if (config.key !== "okx" || config.authType !== "authorization") {
+    return localAccount ? { ...credential, account: localAccount } : credential;
+  }
+
+  try {
+    const profileAccount = await fetchOkxAccountProfile(credential.credential);
+    return { ...credential, account: profileAccount };
+  } catch (error) {
+    return {
+      ...credential,
+      ...(localAccount ? { account: localAccount } : {}),
+      accountLookupError: readErrorMessage(error),
+    };
+  }
 }
 
 async function getCookiesForUrl(url: URL): Promise<ExchangeCookie[]> {
@@ -358,7 +386,11 @@ function toErrorResponse(sendResponse: (response?: unknown) => void) {
   return (error: unknown) => {
     sendResponse({
       ok: false,
-      error: error instanceof Error ? error.message : String(error),
+      error: readErrorMessage(error),
     });
   };
+}
+
+function readErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
