@@ -48,6 +48,11 @@ try {
   cleanup = await runProgressiveAuthMethodsStartupTest(server);
   cleanup();
   console.log("✓ Binance active 凭证检查会先于其它交易所增量更新");
+
+  installServiceMocks();
+  cleanup = await runOkxHostCookieCaptureTest(server);
+  cleanup();
+  console.log("✓ OKX 按需抓取会读取当前 okx.com 标签页域名 Cookie");
 } catch (error) {
   console.error(error);
   process.exitCode = 1;
@@ -106,6 +111,10 @@ async function createTestServer() {
         },
         { find: "@", replacement: resolve(ROOT_DIR, "src") },
       ],
+    },
+    optimizeDeps: {
+      include: [],
+      noDiscovery: true,
     },
     server: { middlewareMode: true },
   });
@@ -243,6 +252,65 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   return testingLibrary.cleanup;
 }
 
+async function runOkxHostCookieCaptureTest(testServer) {
+  const storageData = {};
+  let runtimeListener;
+  const chromeMock = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+    storageData,
+  });
+  chromeMock.runtime.onMessage = {
+    addListener: createMock((listener) => {
+      runtimeListener = listener;
+    }),
+  };
+  chromeMock.webRequest = {
+    onBeforeSendHeaders: { addListener: createMock() },
+  };
+  chromeMock.tabs = {
+    ...chromeMock.tabs,
+    onUpdated: { addListener: createMock() },
+    query: createMock(() => [
+      { url: "https://www.okx.com/account/users" },
+    ]),
+  };
+  chromeMock.cookies = {
+    getAll: createMock((query) => {
+      if (query.domain === "www.okx.com") {
+        return [
+          {
+            name: "token",
+            value: "",
+          },
+          {
+            name: "token",
+            value: "okx-host-token",
+          },
+        ];
+      }
+      return [];
+    }),
+  };
+  globalThis.chrome = chromeMock;
+
+  await testServer.ssrLoadModule(
+    `/src/background/background.ts?case=okx-host-cookie-${Date.now()}`
+  );
+  assert.equal(typeof runtimeListener, "function");
+
+  const response = await sendBackgroundMessage(runtimeListener, {
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange: "okx",
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.credential?.exchange, "okx");
+  assert.equal(response.credential?.authType, "authorization");
+  assert.equal(response.credential?.credential, "okx-host-token");
+
+  return () => {};
+}
+
 function handleRuntimeMessage(message, storedCredentials) {
   if (message.type === "GET_EXCHANGE_CREDENTIALS") {
     return storedCredentials;
@@ -328,6 +396,12 @@ function removeStorageKeys(storageData, keys) {
   for (const key of normalizedKeys) {
     delete storageData[key];
   }
+}
+
+function sendBackgroundMessage(listener, message) {
+  return new Promise((resolve) => {
+    listener(message, {}, resolve);
+  });
 }
 
 function createMock(implementation = () => undefined) {

@@ -132,7 +132,7 @@ function findCookieValue(
   cookies: readonly ExchangeCookie[],
   name: string
 ): string | null {
-  return cookies.find((cookie) => cookie.name === name)?.value ?? null;
+  return cookies.find((cookie) => cookie.name === name && cookie.value.trim())?.value ?? null;
 }
 
 function hostnameMatchesDomain(hostname: string, domain: string): boolean {

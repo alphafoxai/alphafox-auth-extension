@@ -79,14 +79,32 @@ async function captureRequestedExchange(
   if (!exchange || !isExchangeKey(exchange)) {
     throw new Error("交易所参数无效");
   }
-  return captureCredentialForExchange(getExchangeConfig(exchange));
+  const config = getExchangeConfig(exchange);
+  const activeTabCredential = await captureCredentialForActiveTab(config);
+  return activeTabCredential ?? captureCredentialForExchange(config);
 }
 
 async function captureCredentialsForAllExchanges(): Promise<readonly ExchangeCredential[]> {
-  const results = await Promise.all(
-    EXCHANGE_CONFIGS.map((config) => captureCredentialForExchange(config))
-  );
+  const results = await Promise.all([
+    captureCredentialForActiveTab(),
+    ...EXCHANGE_CONFIGS.map((config) => captureCredentialForExchange(config)),
+  ]);
   return results.filter((credential): credential is ExchangeCredential => Boolean(credential));
+}
+
+async function captureCredentialForActiveTab(
+  expectedConfig?: ExchangeConfig
+): Promise<ExchangeCredential | null> {
+  const tab = await getActiveTab();
+  if (!tab?.url) {
+    return null;
+  }
+
+  const config = findExchangeConfigByHost(new URL(tab.url).hostname);
+  if (expectedConfig && config?.key !== expectedConfig.key) {
+    return null;
+  }
+  return captureCredentialForUrl(tab.url);
 }
 
 async function captureCredentialForUrl(rawUrl: string): Promise<ExchangeCredential | null> {
@@ -144,11 +162,11 @@ function buildExchangeCredential(
 }
 
 async function getCookiesForUrl(url: URL): Promise<ExchangeCookie[]> {
-  const chromeCookies = await chrome.cookies.getAll({
-    url: `${url.protocol}//${url.hostname}/`,
-  });
+  const cookieGroups = await Promise.all(
+    buildCookieQueriesForUrl(url).map((query) => chrome.cookies.getAll(query))
+  );
 
-  return chromeCookies.map(toExchangeCookie);
+  return dedupeCookies(cookieGroups.flat().map(toExchangeCookie));
 }
 
 async function getCookiesForExchange(config: ExchangeConfig): Promise<ExchangeCookie[]> {
@@ -160,12 +178,24 @@ async function getCookiesForExchange(config: ExchangeConfig): Promise<ExchangeCo
 }
 
 function buildCookieQueriesForDomain(domain: string): CookieQuery[] {
-  const urls = [`https://${domain}/`];
+  const domains = [domain];
   if (!domain.startsWith("www.")) {
-    urls.push(`https://www.${domain}/`);
+    domains.push(`www.${domain}`);
   }
 
-  return [{ domain }, ...urls.map((url) => ({ url }))];
+  return [
+    ...domains.map((queryDomain) => ({ domain: queryDomain })),
+    ...domains.map((queryDomain) => ({ url: `https://${queryDomain}/` })),
+  ];
+}
+
+function buildCookieQueriesForUrl(url: URL): CookieQuery[] {
+  const normalizedUrl = `${url.protocol}//${url.hostname}${url.pathname || "/"}`;
+  return [
+    { domain: url.hostname },
+    { url: normalizedUrl },
+    { url: `${url.protocol}//${url.hostname}/` },
+  ];
 }
 
 function toExchangeCookie(cookie: chrome.cookies.Cookie): ExchangeCookie {
@@ -175,9 +205,19 @@ function toExchangeCookie(cookie: chrome.cookies.Cookie): ExchangeCookie {
 function dedupeCookies(cookies: readonly ExchangeCookie[]): ExchangeCookie[] {
   const byName = new Map<string, ExchangeCookie>();
   for (const cookie of cookies) {
-    byName.set(cookie.name, cookie);
+    byName.set(`${cookie.name}\u0000${cookie.value}`, cookie);
   }
   return Array.from(byName.values());
+}
+
+async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
+  const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (tabs[0]) {
+    return tabs[0];
+  }
+
+  const allWindowTabs = await chrome.tabs.query({ active: true });
+  return allWindowTabs[0] ?? null;
 }
 
 async function saveCredential(credential: ExchangeCredential): Promise<void> {
