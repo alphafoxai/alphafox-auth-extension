@@ -70,7 +70,8 @@ export function ExchangeCredentialsPanel({
   const credentialState = useStoredCredentials();
   const linkedState = useLinkedAuthMethods(
     browserProfileState.profile,
-    authMethods
+    authMethods,
+    authMethodStatus
   );
   const syncController = useExchangeSyncController({
     browserProfile: browserProfileState.profile,
@@ -185,7 +186,8 @@ function useStoredCredentials() {
 
 function useLinkedAuthMethods(
   browserProfile: BrowserProfileInfo | null,
-  authMethods: readonly ExchangeAuthMethod[]
+  authMethods: readonly ExchangeAuthMethod[],
+  authMethodStatus?: AuthMethodStatusMap
 ) {
   const [state, setState] = useState<LinkedStatusState>({
     error: "",
@@ -231,31 +233,32 @@ function useLinkedAuthMethods(
   }, [browserProfile]);
 
   useEffect(() => {
-    if (!browserProfile || !profileLoaded || authMethods.length === 0) {
+    if (!browserProfile || !profileLoaded) {
       return;
     }
 
-    const inferred = inferBrowserProfileLinks(
+    const reconciled = reconcileBrowserProfileLinks(
       linkedStatuses,
       authMethods,
-      browserProfile
+      browserProfile,
+      authMethodStatus
     );
-    if (linkedStatusesEqual(linkedStatuses, inferred)) {
+    if (linkedStatusesEqual(linkedStatuses, reconciled)) {
       return;
     }
 
     setState({
       error: "",
-      linkedStatuses: inferred,
+      linkedStatuses: reconciled,
       profileId: browserProfile.id,
     });
-    void writeLinkedStatuses(browserProfile, inferred).catch((storageError) => {
+    void writeLinkedStatuses(browserProfile, reconciled).catch((storageError) => {
       setState((current) => ({
         ...current,
         error: readErrorMessage(storageError),
       }));
     });
-  }, [authMethods, browserProfile, linkedStatuses, profileLoaded]);
+  }, [authMethodStatus, authMethods, browserProfile, linkedStatuses, profileLoaded]);
 
   async function linkMethod(
     exchange: ExchangeKey,
@@ -492,7 +495,9 @@ function ExchangeCard({
 }) {
   const config = getExchangeConfig(configKey);
   const linkedMethod = findMethodById(existingMethods, linkedMethodId);
-  const linked = Boolean(linkedMethodId);
+  const effectiveLinkedMethodId =
+    linkedMethod?.id ?? (authMethodStatus === "loaded" ? undefined : linkedMethodId);
+  const linked = Boolean(effectiveLinkedMethodId);
   const hasCredential = Boolean(credential);
 
   return (
@@ -509,14 +514,14 @@ function ExchangeCard({
         existingMethods={existingMethods}
         help={config.credentialHelp}
         linkedMethod={linkedMethod}
-        linkedMethodId={linkedMethodId}
+        linkedMethodId={effectiveLinkedMethodId}
       />
       <ExchangeCardActions
         configKey={configKey}
         disabled={Boolean(mutating) || !browserProfile}
         hasCredential={hasCredential}
         linked={linked}
-        linkedMethodId={linkedMethodId}
+        linkedMethodId={effectiveLinkedMethodId}
         loading={mutating === configKey}
         onOpenBindingDialog={onOpenBindingDialog}
         onSync={onSync}
@@ -1049,35 +1054,80 @@ function selectComparisonMethod(
   );
 }
 
-function inferBrowserProfileLinks(
+function reconcileBrowserProfileLinks(
   linkedStatuses: LinkedStatusMap,
   authMethods: readonly ExchangeAuthMethod[],
-  browserProfile: BrowserProfileInfo
+  browserProfile: BrowserProfileInfo,
+  authMethodStatus?: AuthMethodStatusMap
 ): LinkedStatusMap {
   const nextStatuses: LinkedStatusMap = { ...linkedStatuses };
-  const ownMethodsByExchange = new Map<ExchangeKey, ExchangeAuthMethod>();
-
-  for (const method of authMethods) {
-    if (
-      !isExchangeKeyString(method.exchange) ||
-      !isSameBrowserProfile(method.metaData, browserProfile)
-    ) {
-      continue;
-    }
-    ownMethodsByExchange.set(method.exchange, method);
-  }
 
   for (const config of EXCHANGE_CONFIGS) {
-    if (nextStatuses[config.key]) {
+    if (!isAuthMethodLoadedForReconciliation(authMethodStatus, config.key)) {
       continue;
     }
-    const ownMethod = ownMethodsByExchange.get(config.key);
-    if (ownMethod?.authType === config.authType) {
+
+    const linkedMethodId = nextStatuses[config.key];
+    if (linkedMethodId) {
+      const linkedMethod = findExchangeAuthMethod(
+        authMethods,
+        config.key,
+        config.authType,
+        linkedMethodId
+      );
+      if (linkedMethod) {
+        continue;
+      }
+      delete nextStatuses[config.key];
+    }
+
+    const ownMethod = findOwnBrowserProfileMethod(
+      authMethods,
+      config.key,
+      config.authType,
+      browserProfile
+    );
+    if (ownMethod) {
       nextStatuses[config.key] = ownMethod.id;
     }
   }
 
   return nextStatuses;
+}
+
+function isAuthMethodLoadedForReconciliation(
+  statusMap: AuthMethodStatusMap | undefined,
+  exchange: ExchangeKey
+): boolean {
+  return statusMap ? statusMap[exchange] === "loaded" : true;
+}
+
+function findExchangeAuthMethod(
+  methods: readonly ExchangeAuthMethod[],
+  exchange: ExchangeKey,
+  authType: string,
+  methodId: number
+): ExchangeAuthMethod | undefined {
+  return methods.find(
+    (method) =>
+      method.id === methodId &&
+      method.exchange === exchange &&
+      method.authType === authType
+  );
+}
+
+function findOwnBrowserProfileMethod(
+  methods: readonly ExchangeAuthMethod[],
+  exchange: ExchangeKey,
+  authType: string,
+  browserProfile: BrowserProfileInfo
+): ExchangeAuthMethod | undefined {
+  return methods.find(
+    (method) =>
+      method.exchange === exchange &&
+      method.authType === authType &&
+      isSameBrowserProfile(method.metaData, browserProfile)
+  );
 }
 
 async function readLinkedStatuses(

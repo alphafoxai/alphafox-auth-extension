@@ -19,6 +19,19 @@ const OKX_CREDENTIAL = {
     id: "okx-current-uuid",
   },
 };
+const BYBIT_CREDENTIAL = {
+  exchange: "bybit",
+  authType: "cookie",
+  credential: "bybit-cookie",
+  capturedAt: "2026-06-29T05:15:00.000Z",
+  domain: "www.bybit.com",
+  sourceCookieNames: ["secure-token"],
+  account: {
+    username: "175311584",
+    source: "cookie:account",
+    id: "175311584",
+  },
+};
 const OKX_AUTHORIZATION_JWT = `Bearer jwt.${Buffer.from(
   JSON.stringify({ nickname: "okx-header-user" })
 ).toString("base64url")}.sig`;
@@ -43,6 +56,7 @@ const TEST_BROWSER_PROFILE = {
   id: "browser-profile-a",
   label: "浏览器配置 TEST01",
 };
+const STALE_BYBIT_METHOD_ID = 8;
 
 let server;
 let cleanup = () => {};
@@ -70,6 +84,11 @@ try {
   cleanup = await runUncreatedExchangeHidesSyncButtonTest(server);
   cleanup();
   console.log("✓ 未创建交易所记录时仅展示全宽创建按钮");
+
+  installServiceMocks();
+  cleanup = await runStaleLinkedMethodIsClearedTest(server);
+  cleanup();
+  console.log("✓ Signal Center 无记录时会清除本地过期绑定编号");
 
   installServiceMocks();
   cleanup = await runAccountComparisonDisplayTest(server);
@@ -355,6 +374,45 @@ async function runUncreatedExchangeHidesSyncButtonTest(testServer) {
 
   const createButton = within(okxCard).getByRole("button", { name: "创建" });
   assert.match(createButton.className, /\bw-full\b/);
+
+  return testingLibrary.cleanup;
+}
+
+async function runStaleLinkedMethodIsClearedTest(testServer) {
+  const linkedStatusKey = `alphafox:linkedAuthMethods:${TEST_BROWSER_PROFILE.id}`;
+  const storageData = { [linkedStatusKey]: { bybit: STALE_BYBIT_METHOD_ID } };
+  const chromeMock = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { bybit: BYBIT_CREDENTIAL })
+    ),
+    storageData,
+  });
+  globalThis.chrome = chromeMock;
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor, within } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethodStatus: { bybit: "loaded" },
+      authMethods: [],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.deepEqual(storageData[linkedStatusKey], {}));
+  const bybitCard = getExchangeCard(screen, "Bybit");
+  assert.equal(
+    within(bybitCard).queryByText(`记录 #${STALE_BYBIT_METHOD_ID}`),
+    null
+  );
+  assert.ok(within(bybitCard).getByText("未绑定"));
+  assert.equal(within(bybitCard).queryByRole("button", { name: "同步" }), null);
+  assert.ok(within(bybitCard).getByRole("button", { name: "创建" }));
 
   return testingLibrary.cleanup;
 }
