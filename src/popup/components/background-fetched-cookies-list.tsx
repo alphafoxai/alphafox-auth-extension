@@ -621,14 +621,32 @@ function ExchangeCardActions({
   readonly onSync: (exchange: ExchangeKey, methodId: number) => Promise<void>;
 }) {
   const buttonDisabled = disabled;
+  const actionLabel = hasCredential ? (linked ? "切换" : "创建") : "绑定";
+
+  if (!linked || !linkedMethodId) {
+    return (
+      <div className="mt-4">
+        <Button
+          className="w-full"
+          disabled={buttonDisabled}
+          loading={loading}
+          onClick={() => void onOpenBindingDialog(configKey, linkedMethodId)}
+          size="sm"
+          variant={hasCredential ? "default" : "outline"}
+        >
+          {actionLabel}
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="mt-4 flex gap-2">
       <Button
         className="flex-1"
-        disabled={buttonDisabled || !linked || !linkedMethodId}
+        disabled={buttonDisabled}
         loading={loading}
-        onClick={() => linkedMethodId && void onSync(configKey, linkedMethodId)}
+        onClick={() => void onSync(configKey, linkedMethodId)}
         size="sm"
         variant="outline"
       >
@@ -640,9 +658,9 @@ function ExchangeCardActions({
         loading={loading}
         onClick={() => void onOpenBindingDialog(configKey, linkedMethodId)}
         size="sm"
-        variant={hasCredential && !linked ? "default" : "outline"}
+        variant="outline"
       >
-        {hasCredential ? (linked ? "切换" : "创建") : "绑定"}
+        {actionLabel}
       </Button>
     </div>
   );

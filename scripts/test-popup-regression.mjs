@@ -67,6 +67,11 @@ try {
   console.log("✓ Binance active 凭证检查会先于其它交易所增量更新");
 
   installServiceMocks();
+  cleanup = await runUncreatedExchangeHidesSyncButtonTest(server);
+  cleanup();
+  console.log("✓ 未创建交易所记录时仅展示全宽创建按钮");
+
+  installServiceMocks();
   cleanup = await runAccountComparisonDisplayTest(server);
   cleanup();
   console.log("✓ 插件会展示当前页面账号与 AlphaFox 已记录账号对比");
@@ -296,10 +301,7 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   await waitFor(() => assert.ok(screen.getByText("cached@example.com")));
   let binanceCard = getExchangeCard(screen, "Binance");
   assert.ok(within(binanceCard).getByText("检查中"));
-  assert.equal(
-    within(binanceCard).getByRole("button", { name: "同步" }).disabled,
-    true
-  );
+  assert.equal(within(binanceCard).queryByRole("button", { name: "同步" }), null);
 
   await testingLibrary.act(async () => {
     pendingMethods.binance.resolve([BINANCE_METHOD]);
@@ -322,6 +324,37 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
     pendingMethods.gate.resolve([]);
     await Promise.resolve();
   });
+
+  return testingLibrary.cleanup;
+}
+
+async function runUncreatedExchangeHidesSyncButtonTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { okx: OKX_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor, within } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethods: [],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText("已读取网页登录信息")));
+  const okxCard = getExchangeCard(screen, "OKX");
+  assert.equal(within(okxCard).queryByRole("button", { name: "同步" }), null);
+
+  const createButton = within(okxCard).getByRole("button", { name: "创建" });
+  assert.match(createButton.className, /\bw-full\b/);
 
   return testingLibrary.cleanup;
 }
