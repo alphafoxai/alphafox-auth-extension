@@ -16,10 +16,13 @@ export interface ExchangeAccountInfo {
   readonly id?: string;
 }
 
+export type ExchangeCredentialCaptureSource = "cookie" | "request-header";
+
 export interface ExchangeCredential {
   readonly exchange: ExchangeKey;
   readonly authType: string;
   readonly credential: string;
+  readonly captureSource?: ExchangeCredentialCaptureSource;
   readonly capturedAt: string;
   readonly domain: string;
   readonly sourceCookieNames: readonly string[];

@@ -5,6 +5,7 @@ import {
   isExchangeKey,
   type ExchangeConfig,
   type ExchangeCredential,
+  type ExchangeCredentialCaptureSource,
   type ExchangeCookie,
   type ExchangeKey,
   type ExchangeRequestHeader,
@@ -160,8 +161,7 @@ async function buildAndSaveExchangeCredential(
   }
 
   const enrichedCredential = enrichExchangeCredential(credential, cookies, requestHeaders);
-  await saveCredential(enrichedCredential);
-  return enrichedCredential;
+  return saveCredential(enrichedCredential);
 }
 
 function buildExchangeCredential(
@@ -180,10 +180,27 @@ function buildExchangeCredential(
     exchange: config.key,
     authType: config.authType,
     credential,
+    captureSource: readCredentialCaptureSource(config, requestHeaders),
     capturedAt: new Date().toISOString(),
     domain,
     sourceCookieNames: config.requiredCookieNames,
   };
+}
+
+function readCredentialCaptureSource(
+  config: ExchangeConfig,
+  requestHeaders: readonly ExchangeRequestHeader[]
+): ExchangeCredentialCaptureSource {
+  if (
+    config.key === "okx" &&
+    requestHeaders.some(
+      (header) =>
+        header.name.toLowerCase() === "authorization" && Boolean(header.value.trim())
+    )
+  ) {
+    return "request-header";
+  }
+  return "cookie";
 }
 
 function enrichExchangeCredential(
@@ -289,14 +306,28 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   return allWindowTabs[0] ?? null;
 }
 
-async function saveCredential(credential: ExchangeCredential): Promise<void> {
+async function saveCredential(credential: ExchangeCredential): Promise<ExchangeCredential> {
   const current = await getStoredCredentials();
+  const existing = current[credential.exchange];
+  const savedCredential = shouldKeepStoredRequestHeader(existing, credential)
+    ? existing
+    : credential;
   await chrome.storage.local.set({
     [STORAGE_KEYS.credentials]: {
       ...current,
-      [credential.exchange]: credential,
+      [credential.exchange]: savedCredential,
     },
   });
+  return savedCredential;
+}
+
+function shouldKeepStoredRequestHeader(
+  existing: ExchangeCredential | undefined,
+  incoming: ExchangeCredential
+): existing is ExchangeCredential {
+  return (
+    existing?.captureSource === "request-header" && incoming.captureSource === "cookie"
+  );
 }
 
 async function getStoredCredentials(): Promise<StoredCredentials> {
@@ -344,9 +375,16 @@ function isExchangeCredential(value: unknown): value is ExchangeCredential {
     isExchangeKeyString(Reflect.get(value, "exchange")) &&
     typeof Reflect.get(value, "authType") === "string" &&
     typeof Reflect.get(value, "credential") === "string" &&
+    isCredentialCaptureSource(Reflect.get(value, "captureSource")) &&
     typeof Reflect.get(value, "capturedAt") === "string" &&
     typeof Reflect.get(value, "domain") === "string"
   );
+}
+
+function isCredentialCaptureSource(
+  value: unknown
+): value is ExchangeCredentialCaptureSource | undefined {
+  return value === undefined || value === "cookie" || value === "request-header";
 }
 
 function isExchangeKeyString(value: unknown): value is ExchangeKey {

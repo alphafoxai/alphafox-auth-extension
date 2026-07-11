@@ -110,6 +110,10 @@ try {
   cleanup();
   console.log("✓ OKX 页面请求里的 Authorization 头会被保存为登录凭证");
 
+  cleanup = await runOkxHeaderCredentialPriorityTest(server);
+  cleanup();
+  console.log("✓ OKX Cookie 刷新不会覆盖已捕获的 Authorization 登录凭证");
+
   installServiceMocks();
   cleanup = await runOkxRequestCookieHeaderCaptureTest(server);
   cleanup();
@@ -585,6 +589,37 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   return () => {};
 }
 
+async function runOkxHeaderCredentialPriorityTest(testServer) {
+  const { chromeMock, requestListener, runtimeListener, storageData } =
+    await loadBackgroundWithRequestCapture(testServer, "okx-header-credential-priority");
+
+  await requestListener({
+    url: "https://www.okx.com/priapi/v5/account/balance",
+    requestHeaders: [
+      { name: "Authorization", value: OKX_AUTHORIZATION_JWT },
+    ],
+  });
+  await waitForStoredCredential(storageData, "okx");
+  assert.equal(
+    storageData["alphafox:exchangeCredentials"].okx.captureSource,
+    "request-header"
+  );
+
+  chromeMock.cookies = {
+    getAll: createMock(() => [{ name: "token", value: "okx-cookie-token" }]),
+  };
+  const response = await sendBackgroundMessage(runtimeListener, {
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange: "okx",
+  });
+
+  assert.equal(response.ok, true);
+  assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT);
+  assert.equal(response.credential?.captureSource, "request-header");
+
+  return () => {};
+}
+
 async function runOkxRequestCookieHeaderCaptureTest(testServer) {
   const { requestListener, runtimeListener, storageData } =
     await loadBackgroundWithRequestCapture(testServer, "okx-cookie-header");
@@ -655,7 +690,7 @@ async function loadBackgroundWithRequestCapture(testServer, caseName) {
   assert.equal(typeof runtimeListener, "function");
   assert.equal(typeof requestListener, "function");
 
-  return { requestListener, runtimeListener, storageData };
+  return { chromeMock, requestListener, runtimeListener, storageData };
 }
 
 function handleRuntimeMessage(message, storedCredentials) {
