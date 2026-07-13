@@ -21,7 +21,7 @@ const OKX_CREDENTIAL = {
 };
 const BYBIT_CREDENTIAL = {
   exchange: "bybit",
-  authType: "cookie",
+  authType: "secure_token",
   credential: "bybit-cookie",
   capturedAt: "2026-06-29T05:15:00.000Z",
   domain: "www.bybit.com",
@@ -29,8 +29,22 @@ const BYBIT_CREDENTIAL = {
   account: {
     username: "175311584",
     source: "cookie:account",
-    id: "175311584",
   },
+};
+const RESOLVED_BYBIT_METHOD = {
+  id: 303,
+  exchange: "bybit",
+  authType: "secure_token",
+  credentialMasked: "bybi...okie",
+  metaData: {
+    browserProfileId: "browser-profile-a",
+    browserProfileName: "浏览器配置 TEST01",
+    nickname: "sseason1991main",
+    exchangeAccountUsername: "sseason1991main",
+    uuid: "175311584",
+  },
+  isActive: true,
+  updatedAt: "2026-06-29T05:15:00.000Z",
 };
 const OKX_AUTHORIZATION_JWT = `Bearer jwt.${Buffer.from(
   JSON.stringify({ nickname: "okx-header-user" })
@@ -94,6 +108,11 @@ try {
   cleanup = await runAccountComparisonDisplayTest(server);
   cleanup();
   console.log("✓ 插件会展示当前页面账号与 AlphaFox 已记录账号对比");
+
+  installServiceMocks();
+  cleanup = await runBybitCreateAccountComparisonTest(server);
+  cleanup();
+  console.log("✓ Bybit 创建后会用账号 ID 识别同一账号");
 
   installServiceMocks();
   cleanup = await runUnknownAccountComparisonHiddenTest(server);
@@ -457,6 +476,47 @@ async function runAccountComparisonDisplayTest(testServer) {
   assert.ok(screen.getByText(/已记录账号：/));
   assert.ok(screen.getByText("okx-recorded-user"));
   assert.ok(screen.getByText(/账号不同/));
+
+  return testingLibrary.cleanup;
+}
+
+async function runBybitCreateAccountComparisonTest(testServer) {
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod = createMock(
+    () => RESOLVED_BYBIT_METHOD
+  );
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { bybit: BYBIT_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { fireEvent, render, screen, waitFor, within } = testingLibrary;
+
+  function BybitCreateHarness() {
+    const [authMethods, setAuthMethods] = React.useState([]);
+    return React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethodStatus: { bybit: "loaded" },
+      authMethods,
+      onMethodsChanged: async () => setAuthMethods([RESOLVED_BYBIT_METHOD]),
+    });
+  }
+
+  render(React.createElement(BybitCreateHarness));
+
+  const createButton = await waitFor(() =>
+    within(getExchangeCard(screen, "Bybit")).getByRole("button", { name: "创建" })
+  );
+  fireEvent.click(createButton);
+  const dialog = await waitFor(() => screen.getByRole("dialog"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "创建" }));
+
+  await waitFor(() => assert.ok(screen.getByText(/^账号一致/)));
+  assert.equal(screen.queryByText(/^账号不同/), null);
 
   return testingLibrary.cleanup;
 }

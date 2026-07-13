@@ -1223,10 +1223,14 @@ function compareAccounts({
 
   const current = normalizeAccountUsername(currentAccount);
   const recorded = normalizeAccountUsername(recordedAccount);
-  if (!current || !recorded) {
+  const currentIdentifiers = [currentId, current].filter(Boolean);
+  const recordedIdentifiers = [recordedId, recorded].filter(Boolean);
+  if (currentIdentifiers.length === 0 || recordedIdentifiers.length === 0) {
     return "unknown";
   }
-  return current === recorded ? "match" : "mismatch";
+  return currentIdentifiers.some((identifier) => recordedIdentifiers.includes(identifier))
+    ? "match"
+    : "mismatch";
 }
 
 function accountComparisonText(status: KnownAccountComparisonStatus): string {
