@@ -180,7 +180,7 @@ function buildExchangeCredential(
     exchange: config.key,
     authType: config.authType,
     credential,
-    captureSource: readCredentialCaptureSource(config, requestHeaders),
+    captureSource: readCredentialCaptureSource(config, cookies, requestHeaders),
     capturedAt: new Date().toISOString(),
     domain,
     sourceCookieNames: config.requiredCookieNames,
@@ -189,10 +189,18 @@ function buildExchangeCredential(
 
 function readCredentialCaptureSource(
   config: ExchangeConfig,
+  cookies: readonly ExchangeCookie[],
   requestHeaders: readonly ExchangeRequestHeader[]
 ): ExchangeCredentialCaptureSource {
+  if (config.key !== "okx") {
+    return "cookie";
+  }
+  // Cookie token is preferred (legacy path). Only mark request-header when the
+  // Authorization header is the actual credential source.
+  if (cookies.some((cookie) => cookie.name === "token" && cookie.value.trim())) {
+    return "cookie";
+  }
   if (
-    config.key === "okx" &&
     requestHeaders.some(
       (header) =>
         header.name.toLowerCase() === "authorization" && Boolean(header.value.trim())
@@ -325,6 +333,12 @@ function shouldKeepStoredRequestHeader(
   existing: ExchangeCredential | undefined,
   incoming: ExchangeCredential
 ): existing is ExchangeCredential {
+  // OKX must prefer the browser cookie `token` (legacy dddd-auth-extension).
+  // Request Authorization headers may carry a Bearer prefix and are only a
+  // fallback when no cookie token is available.
+  if (incoming.exchange === "okx" && incoming.captureSource === "cookie") {
+    return false;
+  }
   return (
     existing?.captureSource === "request-header" && incoming.captureSource === "cookie"
   );

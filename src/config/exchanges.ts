@@ -73,10 +73,13 @@ export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
     authLabel: "网页登录状态",
     primaryUrl: "https://www.okx.com",
     domains: ["okx.com"],
-    requiredCookieNames: ["authorization", "token"],
+    // Prefer the browser cookie token (legacy dddd-auth-extension). Request
+    // Authorization headers may include a "Bearer " prefix that OKX rejects.
+    requiredCookieNames: ["token"],
     credentialHelp: "请先在 OKX 网页完成登录，然后点击立即刷新。",
     buildCredential: ({ cookies, requestHeaders }) =>
-      findHeaderValue(requestHeaders ?? [], "authorization") ?? findCookieValue(cookies, "token"),
+      findCookieValue(cookies, "token") ??
+      stripBearerPrefix(findHeaderValue(requestHeaders ?? [], "authorization")),
   },
   {
     key: "bitget",
@@ -162,6 +165,17 @@ function findHeaderValue(
       (header) => header.name.toLowerCase() === normalizedName && header.value.trim()
     )?.value ?? null
   );
+}
+
+function stripBearerPrefix(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (/^bearer\s+/i.test(trimmed)) {
+    return trimmed.replace(/^bearer\s+/i, "").trim() || null;
+  }
+  return trimmed || null;
 }
 
 function hostnameMatchesDomain(hostname: string, domain: string): boolean {

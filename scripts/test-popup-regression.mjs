@@ -46,9 +46,11 @@ const RESOLVED_BYBIT_METHOD = {
   isActive: true,
   updatedAt: "2026-06-29T05:15:00.000Z",
 };
-const OKX_AUTHORIZATION_JWT = `Bearer jwt.${Buffer.from(
+const OKX_AUTHORIZATION_JWT_PAYLOAD = Buffer.from(
   JSON.stringify({ nickname: "okx-header-user" })
-).toString("base64url")}.sig`;
+).toString("base64url");
+const OKX_AUTHORIZATION_JWT_BARE = `jwt.${OKX_AUTHORIZATION_JWT_PAYLOAD}.sig`;
+const OKX_AUTHORIZATION_JWT = `Bearer ${OKX_AUTHORIZATION_JWT_BARE}`;
 const CACHED_SESSION = {
   user: { id: "user-1", email: "cached@example.com" },
   roles: ["user"],
@@ -131,7 +133,7 @@ try {
 
   cleanup = await runOkxHeaderCredentialPriorityTest(server);
   cleanup();
-  console.log("✓ OKX Cookie 刷新不会覆盖已捕获的 Authorization 登录凭证");
+  console.log("✓ OKX Cookie token 优先于 request Authorization 登录凭证");
 
   installServiceMocks();
   cleanup = await runOkxRequestCookieHeaderCaptureTest(server);
@@ -641,7 +643,8 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
   assert.equal(response.ok, true);
   assert.equal(response.credential?.exchange, "okx");
   assert.equal(response.credential?.authType, "authorization");
-  assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT);
+  // Request Authorization may include Bearer; store the bare JWT OKX accepts.
+  assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT_BARE);
   assert.equal(response.credential?.account?.username, "okx-header-user");
   assert.equal(response.credential?.account?.id, undefined);
   assert.equal(response.credential?.account?.source, "header:authorization");
@@ -665,6 +668,7 @@ async function runOkxHeaderCredentialPriorityTest(testServer) {
     "request-header"
   );
 
+  // Cookie token is preferred over request Authorization (legacy path).
   chromeMock.cookies = {
     getAll: createMock(() => [{ name: "token", value: "okx-cookie-token" }]),
   };
@@ -674,8 +678,8 @@ async function runOkxHeaderCredentialPriorityTest(testServer) {
   });
 
   assert.equal(response.ok, true);
-  assert.equal(response.credential?.credential, OKX_AUTHORIZATION_JWT);
-  assert.equal(response.credential?.captureSource, "request-header");
+  assert.equal(response.credential?.credential, "okx-cookie-token");
+  assert.equal(response.credential?.captureSource, "cookie");
 
   return () => {};
 }
