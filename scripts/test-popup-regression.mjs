@@ -197,6 +197,11 @@ try {
   console.log("✓ 插件会展示当前页面账号与 AlphaFox 已记录账号对比");
 
   installServiceMocks();
+  cleanup = await runOkxOneSidedIdAccountComparisonHiddenTest(server);
+  cleanup();
+  console.log("✓ OKX 仅后端有 uuid 时不因昵称不同而误报");
+
+  installServiceMocks();
   cleanup = await runBybitCreateAccountComparisonTest(server);
   cleanup();
   console.log("✓ Bybit 创建后会用账号 ID 识别同一账号");
@@ -209,6 +214,10 @@ try {
   cleanup = await runBitgetAccountDetectionTest(server);
   cleanup();
   console.log("✓ Bitget cookie JSON 会同时识别昵称与 userId");
+
+  cleanup = await runOkxUuidAccountDetectionTest(server);
+  cleanup();
+  console.log("✓ OKX cookie JSON 会同时识别 nickName 与 uuid");
 
   installServiceMocks();
   cleanup = await runGateEmailNicknameAccountComparisonTest(server);
@@ -568,7 +577,11 @@ async function runAccountComparisonDisplayTest(testServer) {
           exchange: "okx",
           authType: "authorization",
           credentialMasked: "old...oken",
-          metaData: { nickname: "okx-recorded-user" },
+          // Different stable id + nickname => hard mismatch.
+          metaData: {
+            nickname: "okx-recorded-user",
+            uuid: "okx-other-uuid",
+          },
           isActive: true,
           updatedAt: "2026-06-28T09:00:00.000Z",
         },
@@ -582,6 +595,58 @@ async function runAccountComparisonDisplayTest(testServer) {
   assert.ok(screen.getByText(/已记录账号：/));
   assert.ok(screen.getByText("okx-recorded-user"));
   assert.ok(screen.getByText(/账号不同/));
+
+  return testingLibrary.cleanup;
+}
+
+async function runOkxOneSidedIdAccountComparisonHiddenTest(testServer) {
+  // After sync, backend may resolve uuid while the browser credential only has
+  // a local nickname — that must not false-alarm as "账号不同".
+  const credentialWithoutId = {
+    ...OKX_CREDENTIAL,
+    account: {
+      username: "okx-local-nick",
+      source: "cookie:userInfo",
+    },
+  };
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { okx: credentialWithoutId })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethods: [
+        {
+          id: 207,
+          exchange: "okx",
+          authType: "authorization",
+          credentialMasked: "okx...oken",
+          metaData: {
+            nickname: "okx-backend-nick",
+            exchangeAccountUsername: "okx-backend-nick",
+            uuid: "okx-backend-uuid",
+          },
+          isActive: true,
+          updatedAt: "2026-07-18T10:00:00.000Z",
+        },
+      ],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText("okx-local-nick")));
+  assert.ok(screen.getByText("okx-backend-nick"));
+  assert.equal(screen.queryByText(/^账号一致/), null);
+  assert.equal(screen.queryByText(/^账号不同/), null);
 
   return testingLibrary.cleanup;
 }
@@ -688,6 +753,27 @@ async function runBitgetAccountDetectionTest(testServer) {
 
   assert.equal(account?.username, "bitget-nick");
   assert.equal(account?.id, "bitget-uid-1");
+  assert.equal(account?.source, "cookie:userInfo");
+  return () => {};
+}
+
+async function runOkxUuidAccountDetectionTest(testServer) {
+  const accountModule = await testServer.ssrLoadModule("/src/config/exchange-account.ts");
+  const account = accountModule.detectExchangeAccount({
+    cookies: [
+      {
+        name: "userInfo",
+        value: JSON.stringify({
+          nickName: "okx-cookie-nick",
+          uuid: "okx-cookie-uuid",
+        }),
+      },
+    ],
+    requestHeaders: [],
+  });
+
+  assert.equal(account?.username, "okx-cookie-nick");
+  assert.equal(account?.id, "okx-cookie-uuid");
   assert.equal(account?.source, "cookie:userInfo");
   return () => {};
 }

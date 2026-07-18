@@ -21,7 +21,7 @@ const DIRECT_USERNAME_COOKIE_NAMES = new Set([
   "username",
 ]);
 
-const DIRECT_IDENTITY_COOKIE_NAMES = new Set(["uid", "userid"]);
+const DIRECT_IDENTITY_COOKIE_NAMES = new Set(["uid", "userid", "uuid"]);
 
 const HIGH_CONFIDENCE_FIELDS = [
   "nickname",
@@ -34,7 +34,9 @@ const HIGH_CONFIDENCE_FIELDS = [
   "email",
 ] as const;
 
+// OKX security profile / JWT payloads use `uuid`; keep uid/userId for others.
 const IDENTITY_FIELDS = [
+  "uuid",
   "uid",
   "userid",
   "user_id",

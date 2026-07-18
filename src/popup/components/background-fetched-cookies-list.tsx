@@ -1225,13 +1225,15 @@ function compareAccounts({
     return "match";
   }
 
-  // Without a stable account id on either side, nickname/email/displayName
-  // differences are often the same person (Binance/Gate). Avoid false alarms.
-  if (!currentHasStableId && !recordedHasStableId) {
-    return "unknown";
+  // Only treat as a hard mismatch when both sides resolved a stable account id
+  // and those ids disagree. One-sided ids (common after OKX/Bitget backend
+  // enrichment while the browser still only has a nickname) would otherwise
+  // false-alarm on display-name differences for the same login.
+  if (currentHasStableId && recordedHasStableId) {
+    return "mismatch";
   }
 
-  return "mismatch";
+  return "unknown";
 }
 
 function accountComparisonText(status: KnownAccountComparisonStatus): string {
