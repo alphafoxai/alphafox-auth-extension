@@ -41,12 +41,22 @@ import {
   ensureBrowserProfile,
   isSameBrowserProfile,
   readBrowserProfileLabelFromMetadata,
-  toBrowserProfileMetadata,
   type BrowserProfileInfo,
 } from "@/lib/browser-profile";
 import { cn } from "@/lib/utils";
-import { AuthService } from "@/services/auth";
-import type { AuthMethodInput, ExchangeAuthMethod } from "@/types/auth";
+import {
+  BITGET_AUTO_SYNC_STORAGE_KEY,
+  parseBitgetAutoSyncState,
+  readBitgetAutoSyncState,
+  type BitgetAutoSyncState,
+} from "@/services/bitget-auto-sync";
+import {
+  readLinkedAuthMethods,
+  saveExchangeAuthMethod,
+  writeLinkedAuthMethods,
+  type LinkedAuthMethodMap,
+} from "@/services/exchange-auth-sync";
+import type { ExchangeAuthMethod } from "@/types/auth";
 
 interface ExchangeCredentialsPanelProps {
   readonly authMethodStatus?: AuthMethodStatusMap;
@@ -55,7 +65,7 @@ interface ExchangeCredentialsPanelProps {
 }
 
 type CredentialMap = Partial<Record<ExchangeKey, ExchangeCredential>>;
-type LinkedStatusMap = Partial<Record<ExchangeKey, number>>;
+type LinkedStatusMap = LinkedAuthMethodMap;
 type AuthMethodLoadStatus = "checking" | "loaded" | "error";
 type AuthMethodStatusMap = Partial<Record<ExchangeKey, AuthMethodLoadStatus>>;
 
@@ -68,6 +78,7 @@ export function ExchangeCredentialsPanel({
   onMethodsChanged,
 }: ExchangeCredentialsPanelProps) {
   const browserProfileState = useBrowserProfile();
+  const bitgetAutoSyncState = useBitgetAutoSyncState();
   const credentialState = useStoredCredentials();
   const linkedState = useLinkedAuthMethods(
     browserProfileState.profile,
@@ -91,6 +102,7 @@ export function ExchangeCredentialsPanel({
       <InstructionCard />
       <ProfileErrorMessage message={browserProfileState.error} />
       <ProfileErrorMessage message={linkedState.error} />
+      <BitgetAutoSyncMessage state={bitgetAutoSyncState} />
       <RefreshStatusBar
         fetching={credentialState.fetching}
         onRefresh={credentialState.captureAllExchanges}
@@ -121,6 +133,32 @@ export function ExchangeCredentialsPanel({
       />
     </section>
   );
+}
+
+function useBitgetAutoSyncState(): BitgetAutoSyncState | null {
+  const [state, setState] = useState<BitgetAutoSyncState | null>(null);
+
+  useEffect(() => {
+    void readBitgetAutoSyncState().then(setState);
+
+    function handleStorageChange(
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string
+    ): void {
+      if (areaName !== "local") {
+        return;
+      }
+      const change = changes[BITGET_AUTO_SYNC_STORAGE_KEY];
+      if (change) {
+        setState(parseBitgetAutoSyncState(change.newValue));
+      }
+    }
+
+    chrome.storage.onChanged?.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged?.removeListener(handleStorageChange);
+  }, []);
+
+  return state;
 }
 
 function useBrowserProfile() {
@@ -206,7 +244,7 @@ function useLinkedAuthMethods(
     }
 
     let cancelled = false;
-    void readLinkedStatuses(browserProfile)
+    void readLinkedAuthMethods(browserProfile)
       .then((stored) => {
         if (cancelled) {
           return;
@@ -253,7 +291,7 @@ function useLinkedAuthMethods(
       linkedStatuses: reconciled,
       profileId: browserProfile.id,
     });
-    void writeLinkedStatuses(browserProfile, reconciled).catch((storageError) => {
+    void writeLinkedAuthMethods(browserProfile, reconciled).catch((storageError) => {
       setState((current) => ({
         ...current,
         error: readErrorMessage(storageError),
@@ -275,7 +313,7 @@ function useLinkedAuthMethods(
       linkedStatuses: nextStatuses,
       profileId: browserProfile.id,
     });
-    await writeLinkedStatuses(browserProfile, nextStatuses);
+    await writeLinkedAuthMethods(browserProfile, nextStatuses);
   }
 
   return { error: state.error, linkMethod, linkedStatuses };
@@ -394,11 +432,11 @@ function useExchangeSyncController({
       throw new Error("正在读取本浏览器标识，请稍后重试。");
     }
 
-    const input = toAuthMethodInput(credential, browserProfile);
-    const savedMethod = methodId
-      ? await AuthService.updateAuthMethod(methodId, input)
-      : await AuthService.createAuthMethod(input);
-    assertSavedMethod(savedMethod);
+    const savedMethod = await saveExchangeAuthMethod({
+      browserProfile,
+      credential,
+      methodId,
+    });
     await linkMethod(exchange, savedMethod);
     await onMethodsChanged();
   }
@@ -430,8 +468,9 @@ function InstructionCard() {
             使用说明
           </h2>
           <p>1. 首次绑定：点击交易所名称网页登录账号，然后点击“创建”。</p>
-          <p>2. 日常更新：重新登录交易所后，点击“同步”更新已绑定记录。</p>
-          <p>3. 多账号：在不同 Chrome Profile 中切换到不同记录后分别同步。</p>
+          <p>2. Bitget：首次手动绑定后，登录 Cookie 更新会自动同步已绑定记录。</p>
+          <p>3. 其它交易所：重新登录后，点击“同步”更新已绑定记录。</p>
+          <p>4. 多账号：在不同 Chrome Profile 中切换到不同记录后分别同步。</p>
         </div>
       </div>
     </div>
@@ -448,6 +487,37 @@ function ProfileErrorMessage({ message }: { readonly message: string }) {
       本浏览器绑定状态读取失败：{message}
     </div>
   );
+}
+
+function BitgetAutoSyncMessage({
+  state,
+}: {
+  readonly state: BitgetAutoSyncState | null;
+}) {
+  if (!state) {
+    return null;
+  }
+
+  return (
+    <div
+      className={cn(
+        "rounded-xl border px-4 py-3 text-sm",
+        bitgetAutoSyncClassName(state.status)
+      )}
+    >
+      Bitget 自动同步：{state.message}
+    </div>
+  );
+}
+
+function bitgetAutoSyncClassName(status: BitgetAutoSyncState["status"]): string {
+  if (status === "error") {
+    return "border-red-200 bg-red-50 text-red-700";
+  }
+  if (status === "unbound") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+  return "border-emerald-200 bg-emerald-50 text-emerald-700";
 }
 
 function RefreshStatusBar({
@@ -1014,38 +1084,6 @@ function groupMethodsByExchange(
   );
 }
 
-function toAuthMethodInput(
-  credential: ExchangeCredential,
-  browserProfile: BrowserProfileInfo
-): AuthMethodInput {
-  const accountUsername = credential.account?.username;
-  const accountId = credential.account?.id;
-  return {
-    exchange: credential.exchange,
-    authType: credential.authType,
-    credential: credential.credential,
-    metaData: {
-      source: "alphafox-auth-extension",
-      capturedAt: credential.capturedAt,
-      domain: credential.domain,
-      ...toBrowserProfileMetadata(browserProfile),
-      ...(accountUsername
-        ? {
-            nickname: accountUsername,
-            exchangeAccountUsername: accountUsername,
-            exchangeAccountSource: credential.account?.source,
-            ...(accountId
-              ? {
-                  uuid: accountId,
-                  exchangeAccountId: accountId,
-                }
-              : {}),
-          }
-        : {}),
-    },
-  };
-}
-
 function selectComparisonMethod(
   methods: readonly ExchangeAuthMethod[],
   browserProfile: BrowserProfileInfo | null
@@ -1130,37 +1168,6 @@ function findOwnBrowserProfileMethod(
       method.authType === authType &&
       isSameBrowserProfile(method.metaData, browserProfile)
   );
-}
-
-async function readLinkedStatuses(
-  browserProfile: BrowserProfileInfo
-): Promise<LinkedStatusMap> {
-  const result = await chrome.storage.local.get(linkedStatusStorageKey(browserProfile));
-  return parseLinkedStatuses(result[linkedStatusStorageKey(browserProfile)]);
-}
-
-async function writeLinkedStatuses(
-  browserProfile: BrowserProfileInfo,
-  linkedStatuses: LinkedStatusMap
-): Promise<void> {
-  await chrome.storage.local.set({
-    [linkedStatusStorageKey(browserProfile)]: linkedStatuses,
-  });
-}
-
-function linkedStatusStorageKey(browserProfile: BrowserProfileInfo): string {
-  return `alphafox:linkedAuthMethods:${browserProfile.id}`;
-}
-
-function parseLinkedStatuses(value: unknown): LinkedStatusMap {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return {};
-  }
-
-  const entries = Object.entries(value).filter(([exchange, id]) => {
-    return isExchangeKeyString(exchange) && isPositiveInteger(id);
-  });
-  return Object.fromEntries(entries.map(([exchange, id]) => [exchange, Number(id)]));
 }
 
 function linkedStatusesEqual(left: LinkedStatusMap, right: LinkedStatusMap): boolean {
@@ -1249,12 +1256,6 @@ function accountComparisonClassName(status: KnownAccountComparisonStatus): strin
   );
 }
 
-function assertSavedMethod(method: ExchangeAuthMethod): void {
-  if (!Number.isInteger(method.id) || method.id <= 0) {
-    throw new Error("AlphaFox 未返回有效的记录编号");
-  }
-}
-
 function isRuntimeError(value: unknown): value is { readonly ok: false; readonly error: string } {
   return Boolean(
     value &&
@@ -1295,15 +1296,6 @@ function isExchangeCredential(value: unknown): value is ExchangeCredential {
       typeof Reflect.get(value, "capturedAt") === "string" &&
       typeof Reflect.get(value, "domain") === "string"
   );
-}
-
-function isExchangeKeyString(value: string): value is ExchangeKey {
-  return EXCHANGE_CONFIGS.some((config) => config.key === value);
-}
-
-function isPositiveInteger(value: unknown): boolean {
-  const numberValue = Number(value);
-  return Number.isInteger(numberValue) && numberValue > 0;
 }
 
 function formatDateTime(value: string): string {

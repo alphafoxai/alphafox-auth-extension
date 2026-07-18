@@ -1,6 +1,6 @@
 {
   "name": "alphafox-auth-extension",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "AlphaFox exchange cookie authentication sync extension",
   "type": "module",
   "packageManager": "pnpm@9.0.0",

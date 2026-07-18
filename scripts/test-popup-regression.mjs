@@ -49,10 +49,13 @@ const RESOLVED_BYBIT_METHOD = {
 const BITGET_CREDENTIAL = {
   exchange: "bitget",
   authType: "session",
-  credential: "bitget-session",
+  credential: JSON.stringify({
+    bt_newsessionid: "bitget-session",
+    bt_rtoken: "bitget-rtoken",
+  }),
   capturedAt: "2026-07-18T08:00:00.000Z",
   domain: "www.bitget.com",
-  sourceCookieNames: ["bt_newsessionid"],
+  sourceCookieNames: ["bt_newsessionid", "bt_rtoken"],
   account: {
     // Local cookie detection often surfaces nickName before email.
     username: "bitget-nick",
@@ -214,6 +217,45 @@ try {
   cleanup = await runBitgetAccountDetectionTest(server);
   cleanup();
   console.log("✓ Bitget cookie JSON 会同时识别昵称与 userId");
+
+  cleanup = await runBitgetCredentialContractTest(server);
+  cleanup();
+  console.log("✓ Bitget 仅在双 Cookie 齐全时构造稳定 JSON 凭证");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncUnboundTest(server);
+  cleanup();
+  console.log("✓ Bitget 未绑定时只记录状态，不会自动创建 AlphaFox 记录");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncUnchangedTest(server);
+  cleanup();
+  console.log("✓ Bitget 凭证未变化时不会请求 AlphaFox API");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncLoggedOutTest(server);
+  cleanup();
+  console.log("✓ AlphaFox 未登录时 Bitget 自动同步失败会持久化状态");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncApiFailureTest(server);
+  cleanup();
+  console.log("✓ Bitget 自动同步 API 失败会持久化原始错误");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncDebounceTest(server);
+  cleanup();
+  console.log("✓ Bitget Cookie 连续变化只触发一次去抖 PUT");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncInFlightTest(server);
+  cleanup();
+  console.log("✓ Bitget 自动同步会串行合并 PUT 期间的新 Cookie 变化");
+
+  installServiceMocks();
+  cleanup = await runBitgetAutoSyncPopupErrorTest(server);
+  cleanup();
+  console.log("✓ Bitget 自动同步失败会在 popup 展示");
 
   cleanup = await runOkxUuidAccountDetectionTest(server);
   cleanup();
@@ -757,6 +799,232 @@ async function runBitgetAccountDetectionTest(testServer) {
   return () => {};
 }
 
+async function runBitgetCredentialContractTest(testServer) {
+  const exchangeModule = await testServer.ssrLoadModule("/src/config/exchanges.ts");
+  const config = exchangeModule.getExchangeConfig("bitget");
+  const complete = config.buildCredential({
+    cookies: [
+      { name: "bt_rtoken", value: "rtoken-value" },
+      { name: "bt_newsessionid", value: "session-value" },
+    ],
+  });
+
+  assert.equal(
+    complete,
+    '{"bt_newsessionid":"session-value","bt_rtoken":"rtoken-value"}'
+  );
+  assert.equal(
+    config.buildCredential({
+      cookies: [{ name: "bt_newsessionid", value: "session-value" }],
+    }),
+    null
+  );
+  assert.equal(
+    config.buildCredential({
+      cookies: [{ name: "bt_rtoken", value: "rtoken-value" }],
+    }),
+    null
+  );
+  assert.equal(
+    config.buildCredential({
+      cookies: [
+        { name: "bt_newsessionid", value: "" },
+        { name: "bt_rtoken", value: "rtoken-value" },
+      ],
+    }),
+    null
+  );
+  return () => {};
+}
+
+async function runBitgetAutoSyncUnboundTest(testServer) {
+  const context = await loadBitgetBackground(testServer, "unbound");
+  await context.backgroundModule.syncLinkedBitgetCredential();
+
+  assert.equal(context.storageData["alphafox:bitgetAutoSync"].status, "unbound");
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod.calls.length, 0);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 0);
+  return () => {};
+}
+
+async function runBitgetAutoSyncUnchangedTest(testServer) {
+  const credential = buildBitgetCredential("session-new", "rtoken-new");
+  const context = await loadBitgetBackground(testServer, "unchanged", {
+    linkedMethodId: 19,
+    lastSyncedCredential: credential,
+  });
+  await context.backgroundModule.syncLinkedBitgetCredential();
+
+  assert.equal(context.storageData["alphafox:bitgetAutoSync"].status, "success");
+  assert.match(context.storageData["alphafox:bitgetAutoSync"].message, /未变化/);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession.calls.length, 0);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 0);
+  return () => {};
+}
+
+async function runBitgetAutoSyncLoggedOutTest(testServer) {
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(() => null);
+  const context = await loadBitgetBackground(testServer, "logged-out", {
+    linkedMethodId: 19,
+    lastSyncedCredential: buildBitgetCredential("session-old", "rtoken-old"),
+  });
+  await context.backgroundModule.syncLinkedBitgetCredential();
+
+  assert.equal(context.storageData["alphafox:bitgetAutoSync"].status, "error");
+  assert.match(context.storageData["alphafox:bitgetAutoSync"].message, /AlphaFox 未登录/);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 0);
+  return () => {};
+}
+
+async function runBitgetAutoSyncApiFailureTest(testServer) {
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(() => CACHED_SESSION);
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod = createMock(() => {
+    throw new Error("Bitget auth rejected: code=401 message=expired");
+  });
+  const context = await loadBitgetBackground(testServer, "api-failure", {
+    linkedMethodId: 19,
+    lastSyncedCredential: buildBitgetCredential("session-old", "rtoken-old"),
+  });
+  await context.backgroundModule.syncLinkedBitgetCredential();
+
+  assert.equal(context.storageData["alphafox:bitgetAutoSync"].status, "error");
+  assert.match(context.storageData["alphafox:bitgetAutoSync"].message, /code=401/);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 1);
+  return () => {};
+}
+
+async function runBitgetAutoSyncDebounceTest(testServer) {
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(() => CACHED_SESSION);
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod = createMock((id, input) => ({
+    ...RESOLVED_BITGET_METHOD,
+    id,
+    metaData: input.metaData,
+  }));
+  const context = await loadBitgetBackground(testServer, "debounce", {
+    linkedMethodId: 19,
+    lastSyncedCredential: buildBitgetCredential("session-old", "rtoken-old"),
+  });
+  const changeInfo = {
+    cookie: { domain: ".bitget.com", name: "bt_rtoken", value: "rtoken-new" },
+    cause: "explicit",
+    removed: false,
+  };
+  context.cookieChangeListener(changeInfo);
+  context.cookieChangeListener(changeInfo);
+  context.cookieChangeListener(changeInfo);
+  await new Promise((resolve) => setTimeout(resolve, 1_700));
+
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 1);
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod.calls.length, 0);
+  assert.equal(context.storageData["alphafox:bitgetAutoSync"].status, "success");
+  return () => {};
+}
+
+async function runBitgetAutoSyncInFlightTest(testServer) {
+  const update = createDeferred();
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(() => CACHED_SESSION);
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod = createMock(() => update.promise);
+  const context = await loadBitgetBackground(testServer, "in-flight", {
+    linkedMethodId: 19,
+    lastSyncedCredential: buildBitgetCredential("session-old", "rtoken-old"),
+  });
+  const changeInfo = {
+    cookie: { domain: ".bitget.com", name: "bt_rtoken", value: "rtoken-new" },
+    cause: "explicit",
+    removed: false,
+  };
+
+  context.cookieChangeListener(changeInfo);
+  await new Promise((resolve) => setTimeout(resolve, 1_700));
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 1);
+
+  context.cookieChangeListener(changeInfo);
+  await new Promise((resolve) => setTimeout(resolve, 1_700));
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 1);
+
+  update.resolve({ ...RESOLVED_BITGET_METHOD, id: 19 });
+  await waitForAutoSyncStatus(context.storageData, "success");
+  assert.equal(globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.updateAuthMethod.calls.length, 1);
+  return () => {};
+}
+
+async function runBitgetAutoSyncPopupErrorTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+    storageData: {
+      "alphafox:bitgetAutoSync": {
+        status: "error",
+        message: "Bitget auth rejected: code=401 message=expired",
+        updatedAt: "2026-07-18T10:00:00.000Z",
+        methodId: 19,
+      },
+    },
+  });
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethods: [],
+      onMethodsChanged: createMock(),
+    })
+  );
+  await waitFor(() => assert.ok(screen.getByText(/Bitget auth rejected: code=401/)));
+  return testingLibrary.cleanup;
+}
+
+async function loadBitgetBackground(
+  testServer,
+  caseName,
+  { linkedMethodId, lastSyncedCredential } = {}
+) {
+  const storageData = {};
+  const profileId = TEST_BROWSER_PROFILE.id;
+  if (linkedMethodId) {
+    storageData[`alphafox:linkedAuthMethods:${profileId}`] = { bitget: linkedMethodId };
+  }
+  if (lastSyncedCredential) {
+    storageData[`alphafox:bitgetLastSyncedCredential:${profileId}`] =
+      lastSyncedCredential;
+  }
+
+  let cookieChangeListener;
+  const chromeMock = createChromeMock({ sendMessage: createMock(), storageData });
+  chromeMock.runtime.onMessage = { addListener: createMock() };
+  chromeMock.webRequest = { onBeforeSendHeaders: { addListener: createMock() } };
+  chromeMock.tabs = {
+    ...chromeMock.tabs,
+    onUpdated: { addListener: createMock() },
+    query: createMock(() => []),
+  };
+  chromeMock.cookies = {
+    getAll: createMock(() => [
+      { name: "bt_newsessionid", value: "session-new" },
+      { name: "bt_rtoken", value: "rtoken-new" },
+    ]),
+    onChanged: {
+      addListener: createMock((listener) => {
+        cookieChangeListener = listener;
+      }),
+    },
+  };
+  globalThis.chrome = chromeMock;
+  globalThis.fetch = createUnexpectedFetchMock();
+
+  const backgroundModule = await testServer.ssrLoadModule(
+    `/src/background/background.ts?case=bitget-${caseName}-${Date.now()}`
+  );
+  assert.equal(typeof cookieChangeListener, "function");
+  return { backgroundModule, cookieChangeListener, storageData };
+}
+
+function buildBitgetCredential(sessionId, rtoken) {
+  return JSON.stringify({ bt_newsessionid: sessionId, bt_rtoken: rtoken });
+}
+
 async function runOkxUuidAccountDetectionTest(testServer) {
   const accountModule = await testServer.ssrLoadModule("/src/config/exchange-account.ts");
   const account = accountModule.detectExchangeAccount({
@@ -917,6 +1185,7 @@ async function runOkxHostCookieCaptureTest(testServer) {
       }
       return [];
     }),
+    onChanged: { addListener: createMock() },
   };
   globalThis.chrome = chromeMock;
 
@@ -1059,6 +1328,7 @@ async function loadBackgroundWithRequestCapture(testServer, caseName) {
   };
   chromeMock.cookies = {
     getAll: createMock(() => []),
+    onChanged: { addListener: createMock() },
   };
   globalThis.chrome = chromeMock;
   globalThis.fetch = createUnexpectedFetchMock();
@@ -1141,6 +1411,10 @@ function createChromeMock({ sendMessage, storageData = {} }) {
   return {
     runtime: { sendMessage },
     storage: {
+      onChanged: {
+        addListener: createMock(),
+        removeListener: createMock(),
+      },
       local: {
         get: createMock((keys) => readStorageKeys(storageData, keys)),
         remove: createMock((keys) => removeStorageKeys(storageData, keys)),
@@ -1191,6 +1465,16 @@ async function waitForStoredCredential(storageData, exchange) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
   assert.fail(`Timed out waiting for stored ${exchange} credential`);
+}
+
+async function waitForAutoSyncStatus(storageData, status) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (storageData["alphafox:bitgetAutoSync"]?.status === status) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail(`Timed out waiting for Bitget auto-sync status ${status}`);
 }
 
 function createMock(implementation = () => undefined) {

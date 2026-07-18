@@ -41,6 +41,9 @@ export interface ExchangeConfig {
   readonly buildCredential: (input: BuildCredentialInput) => string | null;
 }
 
+export const BITGET_INCOMPLETE_CREDENTIAL_MESSAGE =
+  "凭证不完整：bt_newsessionid 与 bt_rtoken 必须同时存在。";
+
 interface BuildCredentialInput {
   readonly cookies: readonly ExchangeCookie[];
   readonly csrfToken?: string | null;
@@ -88,9 +91,20 @@ export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
     authLabel: "网页登录状态",
     primaryUrl: "https://www.bitget.com",
     domains: ["bitget.com", "bitgetapps.com"],
-    requiredCookieNames: ["bt_newsessionid"],
-    credentialHelp: "请先在 Bitget 网页完成登录，然后点击立即刷新。",
-    buildCredential: ({ cookies }) => findCookieValue(cookies, "bt_newsessionid"),
+    requiredCookieNames: ["bt_newsessionid", "bt_rtoken"],
+    credentialHelp:
+      "Bitget 凭证不完整。请确认网页已登录且 bt_newsessionid、bt_rtoken 两个 Cookie 均存在。",
+    buildCredential: ({ cookies }) => {
+      const sessionId = findCookieValue(cookies, "bt_newsessionid");
+      const rtoken = findCookieValue(cookies, "bt_rtoken");
+      if (!sessionId || !rtoken) {
+        return null;
+      }
+      return JSON.stringify({
+        bt_newsessionid: sessionId,
+        bt_rtoken: rtoken,
+      });
+    },
   },
   {
     key: "bybit",

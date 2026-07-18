@@ -1,10 +1,10 @@
 # Privacy Policy for AlphaFox Auth Sync Extension
 
-**Last Updated:** June 27, 2026
+**Last Updated:** July 18, 2026
 
 ## Overview
 
-AlphaFox Auth Sync reads authentication cookies or tokens from supported cryptocurrency exchange websites and sends the selected credential to AlphaFox only after the user chooses create or sync in the popup.
+AlphaFox Auth Sync reads authentication cookies or tokens from supported cryptocurrency exchange websites. The first credential binding is sent only after the user chooses create or sync in the popup. After a Bitget record is manually bound, changes to its required cookies automatically update that same AlphaFox record.
 
 ## Data We Collect
 
@@ -16,7 +16,7 @@ Supported credential types:
 
 - Binance `cookie_csrf` (`p20t` Cookie + CSRF request header)
 - OKX `authorization` (`token` Cookie)
-- Bitget `session` (`bt_newsessionid` Cookie)
+- Bitget `session` (`bt_newsessionid` + `bt_rtoken` Cookies)
 - Bybit `secure_token` (`secure-token` Cookie)
 - Gate.io `token` (`token` Cookie)
 
@@ -29,11 +29,12 @@ The data is used only to:
 - Detect whether the user is logged in to AlphaFox.
 - Create a first exchange credential in AlphaFox.
 - Sync a refreshed exchange credential to AlphaFox.
+- Automatically update an already bound Bitget record when either required Bitget Cookie changes. The extension never creates a Bitget record in the background.
 - Display masked local status in the extension popup.
 
 ## Local Storage
 
-The extension stores the latest detected exchange credential locally with Chrome `storage.local` so the popup can show and submit it. AlphaFox passwords are never stored by this extension.
+The extension stores the latest detected exchange credential, browser-profile binding, last successfully synced Bitget credential, and Bitget automatic-sync status locally with Chrome `storage.local` so the popup and background service can update the intended existing record. AlphaFox passwords are never stored by this extension.
 
 ## Transmission
 

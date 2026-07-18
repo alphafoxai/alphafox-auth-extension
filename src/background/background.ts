@@ -1,4 +1,5 @@
 import {
+  BITGET_INCOMPLETE_CREDENTIAL_MESSAGE,
   EXCHANGE_CONFIGS,
   findExchangeConfigByHost,
   getExchangeConfig,
@@ -11,6 +12,10 @@ import {
   type ExchangeRequestHeader,
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
+import {
+  registerBitgetCookieAutoSync,
+  syncLinkedBitgetCredential as syncLinkedBitgetCredentialService,
+} from "@/services/bitget-cookie-auto-sync";
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -76,6 +81,14 @@ chrome.tabs.onUpdated.addListener((_tabId, changeInfo, tab) => {
   });
 });
 
+registerBitgetCookieAutoSync(syncLinkedBitgetCredential);
+
+export async function syncLinkedBitgetCredential(): Promise<void> {
+  return syncLinkedBitgetCredentialService(() => {
+    return captureCredentialForExchange(getExchangeConfig("bitget"));
+  });
+}
+
 async function captureRequestedExchange(
   exchange: string | undefined
 ): Promise<ExchangeCredential | null> {
@@ -91,6 +104,10 @@ async function captureRequestedExchange(
   const scannedCredential = await captureCredentialForExchange(config);
   if (scannedCredential) {
     return scannedCredential;
+  }
+
+  if (config.key === "bitget") {
+    throw new Error(BITGET_INCOMPLETE_CREDENTIAL_MESSAGE);
   }
 
   return (await getStoredCredentials())[config.key] ?? null;
@@ -145,7 +162,15 @@ async function captureCredentialForExchange(
   config: ExchangeConfig
 ): Promise<ExchangeCredential | null> {
   const cookies = await getCookiesForExchange(config);
-  return buildAndSaveExchangeCredential(config, config.domains[0], cookies);
+  const credential = await buildAndSaveExchangeCredential(
+    config,
+    config.domains[0],
+    cookies
+  );
+  if (!credential && config.key === "bitget") {
+    await removeStoredCredential(config.key);
+  }
+  return credential;
 }
 
 async function buildAndSaveExchangeCredential(
@@ -347,6 +372,16 @@ function shouldKeepStoredRequestHeader(
 async function getStoredCredentials(): Promise<StoredCredentials> {
   const result = await chrome.storage.local.get(STORAGE_KEYS.credentials);
   return readStoredCredentials(result[STORAGE_KEYS.credentials]);
+}
+
+async function removeStoredCredential(exchange: ExchangeKey): Promise<void> {
+  const current = await getStoredCredentials();
+  if (!current[exchange]) {
+    return;
+  }
+  const next = { ...current };
+  delete next[exchange];
+  await chrome.storage.local.set({ [STORAGE_KEYS.credentials]: next });
 }
 
 async function readStoredCsrfToken(): Promise<string | null> {
