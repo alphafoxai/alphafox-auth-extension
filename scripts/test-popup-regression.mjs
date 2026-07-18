@@ -76,6 +76,61 @@ const RESOLVED_BITGET_METHOD = {
   isActive: true,
   updatedAt: "2026-07-18T08:00:00.000Z",
 };
+const GATE_CREDENTIAL = {
+  exchange: "gate",
+  authType: "token",
+  credential: "gate-token",
+  capturedAt: "2026-07-18T09:00:00.000Z",
+  domain: "www.gate.io",
+  sourceCookieNames: ["token"],
+  account: {
+    // Local cookie detection may surface email while backend nickname differs.
+    username: "gate@example.com",
+    source: "cookie:email",
+  },
+};
+const RESOLVED_GATE_METHOD = {
+  id: 505,
+  exchange: "gate",
+  authType: "token",
+  credentialMasked: "gate...oken",
+  metaData: {
+    browserProfileId: "browser-profile-a",
+    browserProfileName: "浏览器配置 TEST01",
+    nickname: "gate-user",
+    exchangeAccountUsername: "gate-user",
+    email: "gate@example.com",
+  },
+  isActive: true,
+  updatedAt: "2026-07-18T09:00:00.000Z",
+};
+const BINANCE_CREDENTIAL = {
+  exchange: "binance",
+  authType: "cookie_csrf",
+  credential: "csrfToken=csrf&p20t=p20t",
+  capturedAt: "2026-07-18T09:30:00.000Z",
+  domain: "www.binance.com",
+  sourceCookieNames: ["p20t", "csrftoken"],
+  account: {
+    username: "binance@example.com",
+    source: "cookie:email",
+  },
+};
+const RESOLVED_BINANCE_METHOD = {
+  id: 606,
+  exchange: "binance",
+  authType: "cookie_csrf",
+  credentialMasked: "p20t...csrf",
+  metaData: {
+    browserProfileId: "browser-profile-a",
+    browserProfileName: "浏览器配置 TEST01",
+    // Backend only resolves displayName; no stable account id.
+    nickname: "bn-display-name",
+    exchangeAccountUsername: "bn-display-name",
+  },
+  isActive: true,
+  updatedAt: "2026-07-18T09:30:00.000Z",
+};
 const OKX_AUTHORIZATION_JWT_PAYLOAD = Buffer.from(
   JSON.stringify({ nickname: "okx-header-user" })
 ).toString("base64url");
@@ -154,6 +209,16 @@ try {
   cleanup = await runBitgetAccountDetectionTest(server);
   cleanup();
   console.log("✓ Bitget cookie JSON 会同时识别昵称与 userId");
+
+  installServiceMocks();
+  cleanup = await runGateEmailNicknameAccountComparisonTest(server);
+  cleanup();
+  console.log("✓ Gate 本地 email 与后端 nickname/email 会识别为同一账号");
+
+  installServiceMocks();
+  cleanup = await runBinanceDisplayNameMismatchHiddenTest(server);
+  cleanup();
+  console.log("✓ Binance 无稳定 ID 时不因 displayName 与 email 不同而误报");
 
   installServiceMocks();
   cleanup = await runUnknownAccountComparisonHiddenTest(server);
@@ -625,6 +690,66 @@ async function runBitgetAccountDetectionTest(testServer) {
   assert.equal(account?.id, "bitget-uid-1");
   assert.equal(account?.source, "cookie:userInfo");
   return () => {};
+}
+
+async function runGateEmailNicknameAccountComparisonTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { gate: GATE_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethodStatus: { gate: "loaded" },
+      authMethods: [RESOLVED_GATE_METHOD],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText(/^账号一致/)));
+  assert.equal(screen.queryByText(/^账号不同/), null);
+  assert.ok(screen.getByText("gate@example.com"));
+  assert.ok(screen.getByText("gate-user"));
+
+  return testingLibrary.cleanup;
+}
+
+async function runBinanceDisplayNameMismatchHiddenTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { binance: BINANCE_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  render(
+    React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethodStatus: { binance: "loaded" },
+      authMethods: [RESOLVED_BINANCE_METHOD],
+      onMethodsChanged: createMock(),
+    })
+  );
+
+  await waitFor(() => assert.ok(screen.getByText("binance@example.com")));
+  assert.ok(screen.getByText("bn-display-name"));
+  assert.equal(screen.queryByText(/^账号一致/), null);
+  assert.equal(screen.queryByText(/^账号不同/), null);
+
+  return testingLibrary.cleanup;
 }
 
 async function runUnknownAccountComparisonHiddenTest(testServer) {

@@ -32,9 +32,10 @@ import {
   type ExchangeKey,
 } from "@/config/exchanges";
 import {
-  normalizeAccountUsername,
   readAccountIdFromMetadata,
+  readAccountIdentifiersFromMetadata,
   readAccountUsernameFromMetadata,
+  uniqueNormalizedIdentifiers,
 } from "@/lib/account-metadata";
 import {
   ensureBrowserProfile,
@@ -803,15 +804,16 @@ function AccountComparison({
   readonly credential?: ExchangeCredential;
   readonly method: ExchangeAuthMethod;
 }) {
-  const currentAccount = credential?.account?.username ?? null;
   const currentAccountId = credential?.account?.id ?? null;
-  const recordedAccount = readAccountUsernameFromMetadata(method.metaData);
   const recordedAccountId = readAccountIdFromMetadata(method.metaData);
   const status = compareAccounts({
-    currentAccount,
-    currentAccountId,
-    recordedAccount,
-    recordedAccountId,
+    currentIdentifiers: uniqueNormalizedIdentifiers([
+      currentAccountId,
+      credential?.account?.username,
+    ]),
+    recordedIdentifiers: readAccountIdentifiersFromMetadata(method.metaData),
+    currentHasStableId: Boolean(currentAccountId?.trim()),
+    recordedHasStableId: Boolean(recordedAccountId?.trim()),
   });
   if (status === "unknown") {
     return null;
@@ -1205,32 +1207,31 @@ type AccountComparisonStatus = "match" | "mismatch" | "unknown";
 type KnownAccountComparisonStatus = Exclude<AccountComparisonStatus, "unknown">;
 
 function compareAccounts({
-  currentAccount,
-  currentAccountId,
-  recordedAccount,
-  recordedAccountId,
+  currentIdentifiers,
+  recordedIdentifiers,
+  currentHasStableId,
+  recordedHasStableId,
 }: {
-  readonly currentAccount: string | null;
-  readonly currentAccountId: string | null;
-  readonly recordedAccount: string | null;
-  readonly recordedAccountId: string | null;
+  readonly currentIdentifiers: readonly string[];
+  readonly recordedIdentifiers: readonly string[];
+  readonly currentHasStableId: boolean;
+  readonly recordedHasStableId: boolean;
 }): AccountComparisonStatus {
-  const currentId = normalizeAccountUsername(currentAccountId);
-  const recordedId = normalizeAccountUsername(recordedAccountId);
-  if (currentId && recordedId) {
-    return currentId === recordedId ? "match" : "mismatch";
-  }
-
-  const current = normalizeAccountUsername(currentAccount);
-  const recorded = normalizeAccountUsername(recordedAccount);
-  const currentIdentifiers = [currentId, current].filter(Boolean);
-  const recordedIdentifiers = [recordedId, recorded].filter(Boolean);
   if (currentIdentifiers.length === 0 || recordedIdentifiers.length === 0) {
     return "unknown";
   }
-  return currentIdentifiers.some((identifier) => recordedIdentifiers.includes(identifier))
-    ? "match"
-    : "mismatch";
+
+  if (currentIdentifiers.some((identifier) => recordedIdentifiers.includes(identifier))) {
+    return "match";
+  }
+
+  // Without a stable account id on either side, nickname/email/displayName
+  // differences are often the same person (Binance/Gate). Avoid false alarms.
+  if (!currentHasStableId && !recordedHasStableId) {
+    return "unknown";
+  }
+
+  return "mismatch";
 }
 
 function accountComparisonText(status: KnownAccountComparisonStatus): string {
