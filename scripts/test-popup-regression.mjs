@@ -46,6 +46,36 @@ const RESOLVED_BYBIT_METHOD = {
   isActive: true,
   updatedAt: "2026-06-29T05:15:00.000Z",
 };
+const BITGET_CREDENTIAL = {
+  exchange: "bitget",
+  authType: "session",
+  credential: "bitget-session",
+  capturedAt: "2026-07-18T08:00:00.000Z",
+  domain: "www.bitget.com",
+  sourceCookieNames: ["bt_newsessionid"],
+  account: {
+    // Local cookie detection often surfaces nickName before email.
+    username: "bitget-nick",
+    source: "cookie:userInfo",
+    id: "bitget-uid-1",
+  },
+};
+const RESOLVED_BITGET_METHOD = {
+  id: 404,
+  exchange: "bitget",
+  authType: "session",
+  credentialMasked: "bitg...sion",
+  metaData: {
+    browserProfileId: "browser-profile-a",
+    browserProfileName: "浏览器配置 TEST01",
+    // Backend resolver prefers email as the display account name.
+    nickname: "bitget-user@example.com",
+    exchangeAccountUsername: "bitget-user@example.com",
+    uuid: "bitget-uid-1",
+  },
+  isActive: true,
+  updatedAt: "2026-07-18T08:00:00.000Z",
+};
 const OKX_AUTHORIZATION_JWT_PAYLOAD = Buffer.from(
   JSON.stringify({ nickname: "okx-header-user" })
 ).toString("base64url");
@@ -115,6 +145,15 @@ try {
   cleanup = await runBybitCreateAccountComparisonTest(server);
   cleanup();
   console.log("✓ Bybit 创建后会用账号 ID 识别同一账号");
+
+  installServiceMocks();
+  cleanup = await runBitgetCreateAccountComparisonTest(server);
+  cleanup();
+  console.log("✓ Bitget 创建后会用账号 ID 识别同一账号");
+
+  cleanup = await runBitgetAccountDetectionTest(server);
+  cleanup();
+  console.log("✓ Bitget cookie JSON 会同时识别昵称与 userId");
 
   installServiceMocks();
   cleanup = await runUnknownAccountComparisonHiddenTest(server);
@@ -523,6 +562,71 @@ async function runBybitCreateAccountComparisonTest(testServer) {
   return testingLibrary.cleanup;
 }
 
+async function runBitgetCreateAccountComparisonTest(testServer) {
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod = createMock(
+    () => RESOLVED_BITGET_METHOD
+  );
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) =>
+      handleRuntimeMessage(message, { bitget: BITGET_CREDENTIAL })
+    ),
+  });
+
+  const [{ default: React }, testingLibrary, panelModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/components/background-fetched-cookies-list.tsx"),
+  ]);
+  const { fireEvent, render, screen, waitFor, within } = testingLibrary;
+
+  function BitgetCreateHarness() {
+    const [authMethods, setAuthMethods] = React.useState([]);
+    return React.createElement(panelModule.ExchangeCredentialsPanel, {
+      authMethodStatus: { bitget: "loaded" },
+      authMethods,
+      onMethodsChanged: async () => setAuthMethods([RESOLVED_BITGET_METHOD]),
+    });
+  }
+
+  render(React.createElement(BitgetCreateHarness));
+
+  const createButton = await waitFor(() =>
+    within(getExchangeCard(screen, "Bitget")).getByRole("button", { name: "创建" })
+  );
+  fireEvent.click(createButton);
+  const dialog = await waitFor(() => screen.getByRole("dialog"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "创建" }));
+
+  await waitFor(() => assert.ok(screen.getByText(/^账号一致/)));
+  assert.equal(screen.queryByText(/^账号不同/), null);
+
+  return testingLibrary.cleanup;
+}
+
+async function runBitgetAccountDetectionTest(testServer) {
+  const accountModule = await testServer.ssrLoadModule("/src/config/exchange-account.ts");
+  const account = accountModule.detectExchangeAccount({
+    cookies: [
+      {
+        name: "userInfo",
+        value: JSON.stringify({
+          userInfo: {
+            userId: "bitget-uid-1",
+            nickName: "bitget-nick",
+            email: "bitget-user@example.com",
+          },
+        }),
+      },
+    ],
+    requestHeaders: [],
+  });
+
+  assert.equal(account?.username, "bitget-nick");
+  assert.equal(account?.id, "bitget-uid-1");
+  assert.equal(account?.source, "cookie:userInfo");
+  return () => {};
+}
+
 async function runUnknownAccountComparisonHiddenTest(testServer) {
   const credentialWithoutAccount = { ...OKX_CREDENTIAL, account: undefined };
   globalThis.chrome = createChromeMock({
@@ -762,9 +866,16 @@ function handleRuntimeMessage(message, storedCredentials) {
     return storedCredentials;
   }
   if (message.type === "CAPTURE_EXCHANGE_CREDENTIAL") {
-    assert.equal(message.exchange, "okx");
-    storedCredentials.okx = OKX_CREDENTIAL;
-    return { ok: true, credential: OKX_CREDENTIAL };
+    const exchange = message.exchange;
+    // OKX on-demand create starts with an empty store and captures on bind.
+    if (exchange === "okx" && !storedCredentials.okx) {
+      storedCredentials.okx = OKX_CREDENTIAL;
+    }
+    const credential = storedCredentials[exchange];
+    if (!credential) {
+      throw new Error(`Unexpected capture exchange: ${exchange ?? "(missing exchange)"}`);
+    }
+    return { ok: true, credential };
   }
   if (message.type === "FETCH_COOKIES_NOW") {
     return { ok: true, credentials: Object.values(storedCredentials) };

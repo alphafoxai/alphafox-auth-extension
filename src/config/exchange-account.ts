@@ -5,22 +5,23 @@ import type {
 } from "@/config/exchanges";
 
 interface AccountCandidate {
-  readonly username: string;
+  readonly username: string | null;
+  readonly id: string | null;
   readonly source: string;
   readonly score: number;
 }
 
-const DIRECT_ACCOUNT_COOKIE_NAMES = new Set([
+const DIRECT_USERNAME_COOKIE_NAMES = new Set([
   "account",
   "accountname",
   "email",
   "loginname",
   "nickname",
   "nick",
-  "uid",
-  "userid",
   "username",
 ]);
+
+const DIRECT_IDENTITY_COOKIE_NAMES = new Set(["uid", "userid"]);
 
 const HIGH_CONFIDENCE_FIELDS = [
   "nickname",
@@ -55,10 +56,30 @@ export function detectExchangeAccount({
     ...requestHeaders.flatMap(readHeaderCandidates),
   ].sort(compareAccountCandidate);
 
-  const candidate = candidates[0];
-  return candidate
-    ? { username: candidate.username, source: candidate.source }
-    : undefined;
+  const primary = candidates[0];
+  if (!primary) {
+    return undefined;
+  }
+
+  const username =
+    primary.username ??
+    candidates.find((candidate) => candidate.username)?.username ??
+    primary.id ??
+    candidates.find((candidate) => candidate.id)?.id;
+  if (!username) {
+    return undefined;
+  }
+
+  const id =
+    primary.id ??
+    candidates.find((candidate) => candidate.id)?.id ??
+    undefined;
+
+  return {
+    username,
+    source: primary.source,
+    ...(id ? { id } : {}),
+  };
 }
 
 function readCookieCandidates(cookie: ExchangeCookie): AccountCandidate[] {
@@ -70,15 +91,18 @@ function readCookieCandidates(cookie: ExchangeCookie): AccountCandidate[] {
 
 function readDirectCookieCandidate(cookie: ExchangeCookie): AccountCandidate | null {
   const cookieName = normalizeKey(cookie.name);
-  if (!DIRECT_ACCOUNT_COOKIE_NAMES.has(cookieName)) {
+  const value = cleanAccountValue(cookie.value);
+  if (!value) {
     return null;
   }
 
-  const username = cleanAccountValue(cookie.value);
-  if (!username) {
+  if (DIRECT_IDENTITY_COOKIE_NAMES.has(cookieName)) {
+    return { username: null, id: value, source: `cookie:${cookie.name}`, score: 70 };
+  }
+  if (!DIRECT_USERNAME_COOKIE_NAMES.has(cookieName)) {
     return null;
   }
-  return { username, source: `cookie:${cookie.name}`, score: 80 };
+  return { username: value, id: null, source: `cookie:${cookie.name}`, score: 80 };
 }
 
 function readHeaderCandidates(header: ExchangeRequestHeader): AccountCandidate[] {
@@ -113,34 +137,43 @@ function readObjectCandidates(
   }
 
   const entries = Object.entries(value);
-  const direct = readFieldCandidates(entries, source);
+  const direct = readFieldCandidate(entries, source);
   const nested = entries.flatMap(([, nestedValue]) =>
     readObjectCandidates(nestedValue, source, depth + 1)
   );
-  return [...direct, ...nested];
+  return direct ? [direct, ...nested] : nested;
 }
 
-function readFieldCandidates(
+function readFieldCandidate(
   entries: readonly [string, unknown][],
   source: string
-): AccountCandidate[] {
+): AccountCandidate | null {
   const fields = new Map(entries.map(([key, value]) => [normalizeKey(key), value]));
-  return [
-    ...readCandidatesForFields(fields, HIGH_CONFIDENCE_FIELDS, source, 100),
-    ...readCandidatesForFields(fields, IDENTITY_FIELDS, source, 60),
-  ];
+  const username = readFirstFieldValue(fields, HIGH_CONFIDENCE_FIELDS);
+  const id = readFirstFieldValue(fields, IDENTITY_FIELDS);
+  if (!username && !id) {
+    return null;
+  }
+
+  return {
+    username,
+    id,
+    source,
+    score: username ? 100 : 60,
+  };
 }
 
-function readCandidatesForFields(
+function readFirstFieldValue(
   fields: ReadonlyMap<string, unknown>,
-  fieldNames: readonly string[],
-  source: string,
-  score: number
-): AccountCandidate[] {
-  return fieldNames
-    .map((fieldName) => cleanAccountValue(fields.get(normalizeKey(fieldName))))
-    .filter((username): username is string => Boolean(username))
-    .map((username) => ({ username, source, score }));
+  fieldNames: readonly string[]
+): string | null {
+  for (const fieldName of fieldNames) {
+    const value = cleanAccountValue(fields.get(normalizeKey(fieldName)));
+    if (value) {
+      return value;
+    }
+  }
+  return null;
 }
 
 function readJwtCandidate(value: string, source: string): AccountCandidate[] {
