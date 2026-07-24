@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 jobs:
   build-and-release:
@@ -39,15 +40,24 @@ jobs:
           path: alphafox-auth-extension.zip
           if-no-files-found: error
 
-      - name: Publish nightly release
+      # Fixed tag "latest" so the download URL stays stable across pushes:
+      # https://github.com/alphafoxai/alphafox-auth-extension/releases/latest/download/alphafox-auth-extension.zip
+      - name: Publish latest release
         uses: ncipollo/release-action@v1
         with:
-          tag: nightly
-          name: Nightly build
-          prerelease: true
+          tag: latest
+          name: Latest build
+          prerelease: false
+          makeLatest: true
           allowUpdates: true
           removeArtifacts: true
+          replacesArtifacts: true
           artifacts: alphafox-auth-extension.zip
           artifactContentType: application/zip
           body: |
-            Automated build from main branch commit ${{ github.sha }}.
+            Automated Chrome extension build from `main`.
+
+            - Commit: `${{ github.sha }}`
+            - Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+            Download `alphafox-auth-extension.zip`, unzip it, then load the folder in Chrome via `chrome://extensions` → Developer mode → Load unpacked.

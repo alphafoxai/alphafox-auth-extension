@@ -35,6 +35,25 @@ Bitget 必须同时读取到 `bt_newsessionid` 和 `bt_rtoken`。缺少任一 Co
 
 多浏览器 Profile 使用时，每个 Profile 可以绑定同一个交易所的不同记录，适合在同一个 AlphaFox 账号下管理多个交易所账号。
 
+## 下载最新打包文件
+
+每次推送到 `main`（或手动触发 CI）会自动构建 Chrome 扩展包，并发布到 GitHub Releases。
+
+- **发布页**：[Latest build](https://github.com/alphafoxai/alphafox-auth-extension/releases/latest)
+- **直接下载 ZIP**：[alphafox-auth-extension.zip](https://github.com/alphafoxai/alphafox-auth-extension/releases/latest/download/alphafox-auth-extension.zip)
+
+该 ZIP 可在 Chrome 中作为本地扩展加载（见下方安装步骤）。
+
+## 在 Chrome 中安装
+
+1. 下载并解压 `alphafox-auth-extension.zip`（解压后的目录里应有 `manifest.json`）。
+2. 打开 Chrome 地址栏输入 `chrome://extensions`。
+3. 打开右上角「开发者模式」。
+4. 点击「加载已解压的扩展程序」。
+5. 选择上一步解压后的文件夹。
+
+之后若 CI 产出了新版本，重新下载 ZIP、解压覆盖（或换新目录），再在扩展页点击「重新加载」即可。
+
 ## 本地构建
 
 ```bash
@@ -48,12 +67,7 @@ pnpm build
 pnpm zip
 ```
 
-## 安装未打包版本
-
-1. 打开 Chrome 的 `chrome://extensions`。
-2. 打开「开发者模式」。
-3. 点击「加载已解压的扩展程序」。
-4. 选择本项目构建后的 `dist/` 目录。
+本地安装时，在 `chrome://extensions` 中加载 `dist/` 目录即可（步骤同上）。
 
 ## 免责声明
 
