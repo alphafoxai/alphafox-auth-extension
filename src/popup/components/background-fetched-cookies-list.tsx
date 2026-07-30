@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowUpRightIcon,
   CheckCircle2Icon,
@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { ExchangeLogo } from "@/components/exchange-logo";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -62,6 +63,8 @@ interface ExchangeCredentialsPanelProps {
   readonly authMethodStatus?: AuthMethodStatusMap;
   readonly authMethods: readonly ExchangeAuthMethod[];
   readonly onMethodsChanged: () => Promise<void>;
+  /** Rendered directly under the instruction card (e.g. saved credentials). */
+  readonly afterInstructions?: ReactNode;
 }
 
 type CredentialMap = Partial<Record<ExchangeKey, ExchangeCredential>>;
@@ -73,6 +76,7 @@ const CREATE_RECORD_SELECT_VALUE = "__alphafox_create_record__";
 const EMPTY_LINKED_STATUSES: LinkedStatusMap = Object.freeze({});
 
 export function ExchangeCredentialsPanel({
+  afterInstructions,
   authMethodStatus,
   authMethods,
   onMethodsChanged,
@@ -100,6 +104,7 @@ export function ExchangeCredentialsPanel({
   return (
     <section className="space-y-4" aria-labelledby="exchange-sync-title">
       <InstructionCard />
+      {afterInstructions}
       <ProfileErrorMessage message={browserProfileState.error} />
       <ProfileErrorMessage message={linkedState.error} />
       <BitgetAutoSyncMessage state={bitgetAutoSyncState} />
@@ -107,7 +112,7 @@ export function ExchangeCredentialsPanel({
         fetching={credentialState.fetching}
         onRefresh={credentialState.captureAllExchanges}
       />
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         {EXCHANGE_CONFIGS.map((config) => (
           <ExchangeCard
             authMethodStatus={readAuthMethodStatus(authMethodStatus, config.key)}
@@ -460,21 +465,36 @@ interface SyncDialogState {
 
 function InstructionCard() {
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-950 shadow-sm">
+    <div className="rounded-2xl border border-orange-200/80 bg-gradient-to-br from-orange-50 via-white to-amber-50 p-4 text-slate-900 shadow-sm">
       <div className="flex gap-3">
-        <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-blue-600" />
-        <div className="space-y-1.5 text-sm leading-relaxed">
-          <h2 id="exchange-sync-title" className="font-semibold">
-            使用说明
-          </h2>
-          <p>1. 首次绑定：点击交易所名称网页登录账号，然后点击“创建”。</p>
-          <p>2. Bitget：首次手动绑定后，登录 Cookie 更新会自动同步已绑定记录。</p>
-          <p>
-            3. 其它交易所：退出/过期后记录会显示「失效」，重新登录网页后点「同步」即可恢复，无需重新创建。
-          </p>
-          <p>4. 多账号：在不同 Chrome Profile 中切换到不同记录后分别同步。</p>
+        <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-orange-100 text-orange-700 ring-1 ring-orange-200">
+          <ShieldCheckIcon className="size-5" />
+        </span>
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="exchange-sync-title" className="text-sm font-semibold text-slate-950">
+              使用说明
+            </h2>
+            <SupportedExchangeStrip />
+          </div>
+          <ol className="space-y-1 text-xs leading-relaxed text-slate-600">
+            <li>1. 首次：打开交易所网页登录 → 点「创建」绑定到 AlphaFox。</li>
+            <li>2. Bitget：首次绑定后 Cookie 更新会自动同步。</li>
+            <li>3. 其它所：过期显示「失效」，重登后点「同步恢复」即可，不必重建。</li>
+            <li>4. 多账号：不同 Chrome Profile 分别绑定不同记录。</li>
+          </ol>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SupportedExchangeStrip() {
+  return (
+    <div className="flex items-center gap-1.5" aria-label="支持的交易所">
+      {EXCHANGE_CONFIGS.map((config) => (
+        <ExchangeLogo exchange={config.key} key={config.key} size="sm" title={config.label} />
+      ))}
     </div>
   );
 }
@@ -530,10 +550,13 @@ function RefreshStatusBar({
   readonly onRefresh: () => Promise<void>;
 }) {
   return (
-    <div className="flex items-center justify-between rounded-xl border bg-white/85 px-4 py-3 shadow-sm">
-      <div className="flex items-center gap-2 text-sm text-slate-600">
+    <div className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm backdrop-blur">
+      <div className="flex min-w-0 items-center gap-2.5 text-sm text-slate-600">
         <LiveDot />
-        <span>自动抓取中（每 5 秒）</span>
+        <div className="min-w-0">
+          <p className="font-medium text-slate-800">交易所登录状态</p>
+          <p className="text-xs text-slate-500">自动抓取中 · 每 5 秒</p>
+        </div>
       </div>
       <Button size="sm" variant="outline" onClick={() => void onRefresh()} loading={fetching}>
         {fetching ? "刷新中..." : "立即刷新"}
@@ -575,8 +598,18 @@ function ExchangeCard({
   const linked = Boolean(effectiveLinkedMethodId);
   const hasCredential = Boolean(credential);
 
+  const inactive = Boolean(linkedMethod && !linkedMethod.isActive);
   return (
-    <article className="flex min-h-[218px] flex-col rounded-2xl border bg-white/90 p-4 shadow-sm transition-shadow hover:shadow-md">
+    <article
+      className={cn(
+        "group/card flex min-h-[230px] flex-col rounded-2xl border bg-white/95 p-4 shadow-sm transition-[box-shadow,border-color,transform] hover:-translate-y-0.5 hover:shadow-md",
+        inactive
+          ? "border-red-200/90 ring-1 ring-red-100"
+          : linked
+            ? "border-emerald-200/70"
+            : "border-slate-200/90"
+      )}
+    >
       <ExchangeCardHeader
         configKey={configKey}
         linked={linked}
@@ -623,17 +656,19 @@ function ExchangeCardHeader({
     <div className="flex items-start justify-between gap-3">
       <button
         type="button"
-        className="group flex min-w-0 cursor-pointer items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+        className="group flex min-w-0 cursor-pointer items-center gap-2.5 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
         onClick={() => chrome.tabs.create({ url: config.primaryUrl })}
         title={`打开 ${config.label} 登录页面`}
       >
-        <ExchangeInitial label={config.label} />
+        <ExchangeLogo exchange={configKey} size="md" />
         <span className="min-w-0">
-          <span className="flex items-center gap-1 font-semibold text-slate-950 group-hover:text-orange-600">
+          <span className="flex items-center gap-1 font-semibold text-slate-950 transition-colors group-hover:text-orange-600">
             {config.label}
-            <ArrowUpRightIcon className="size-3.5" />
+            <ArrowUpRightIcon className="size-3.5 opacity-60 transition-opacity group-hover:opacity-100" />
           </span>
-          <span className="block text-xs text-slate-500">网页登录状态</span>
+          <span className="mt-0.5 block text-[11px] text-slate-500">
+            点击打开网页登录
+          </span>
         </span>
       </button>
       <StatusPill linked={linked} linkedMethod={linkedMethod} status={status} />
@@ -1044,7 +1079,10 @@ function SyncDialog({
                 ) : null}
                 {methods.map((method) => (
                   <SelectItem key={method.id} value={method.id.toString()}>
-                    {formatMethodSelectLabel(method)}
+                    <span className="inline-flex items-center gap-2">
+                      <ExchangeLogo exchange={method.exchange} size="sm" />
+                      <span>{formatMethodSelectLabel(method)}</span>
+                    </span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -1074,14 +1112,6 @@ function LiveDot() {
     <span className="relative flex size-2.5">
       <span className="absolute inline-flex size-full animate-ping rounded-full bg-emerald-400 opacity-70" />
       <span className="relative inline-flex size-2.5 rounded-full bg-emerald-500" />
-    </span>
-  );
-}
-
-function ExchangeInitial({ label }: { readonly label: string }) {
-  return (
-    <span className="flex size-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-semibold text-white">
-      {label.slice(0, 1)}
     </span>
   );
 }

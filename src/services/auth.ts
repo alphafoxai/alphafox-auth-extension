@@ -1,4 +1,5 @@
 import {
+  ALPHAFOX_APP_URL,
   ALPHAFOX_LOGIN_URL,
   ALPHAFOX_SIGNAL_AUTH_METHODS_ENDPOINT,
   ALPHAFOX_WEB_BASE_URL,
@@ -14,7 +15,12 @@ import type {
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 export class AuthService {
+  /** Open Alphafox account cookies page (auth gate redirects to login when needed). */
   static openLoginPage(): void {
+    chrome.tabs.create({ url: ALPHAFOX_APP_URL });
+  }
+
+  static openLoginWithReturn(): void {
     chrome.tabs.create({ url: ALPHAFOX_LOGIN_URL });
   }
 
