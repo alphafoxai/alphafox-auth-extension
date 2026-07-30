@@ -234,14 +234,16 @@ export default function Popup() {
             />
             {error ? <InlineError message={error} /> : null}
             <ExchangeCredentialsPanel
+              afterInstructions={
+                <AuthMethodsList
+                  actionLoading={actionLoading}
+                  methods={authMethods}
+                  onDelete={handleDelete}
+                />
+              }
               authMethodStatus={authMethodStatus}
               authMethods={authMethods}
               onMethodsChanged={refreshAuthMethods}
-            />
-            <AuthMethodsList
-              actionLoading={actionLoading}
-              methods={authMethods}
-              onDelete={handleDelete}
             />
           </div>
         ) : null}
@@ -284,24 +286,23 @@ function Header({
     <header className="rounded-3xl border border-orange-100/80 bg-white/90 p-4 shadow-sm backdrop-blur">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-orange-50 ring-1 ring-orange-100">
-            <img src="/icon.svg" alt="" aria-hidden="true" className="size-7" />
-          </div>
+          <img
+            src="/alphafox-lockup.svg"
+            alt="Alphafox"
+            className="h-12 w-auto shrink-0"
+          />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <img src="/logo-text.svg" alt="AlphaFox 灵狐量化" className="h-6 shrink-0" />
-              <span
-                className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                  verified
-                    ? "bg-emerald-100 text-emerald-700"
-                    : loading
-                      ? "bg-amber-100 text-amber-700"
-                      : "bg-slate-100 text-slate-600"
-                }`}
-              >
-                {readHeaderStatusText({ loading, verified })}
-              </span>
-            </div>
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                verified
+                  ? "bg-emerald-100 text-emerald-700"
+                  : loading
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              {readHeaderStatusText({ loading, verified })}
+            </span>
             <p className="mt-1 truncate text-sm font-medium text-slate-700" title={email}>
               {email}
             </p>

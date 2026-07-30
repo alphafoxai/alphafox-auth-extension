@@ -27,19 +27,18 @@ function LoginHero() {
   return (
     <>
       <div className="flex justify-center pt-2">
-        <div className="flex flex-col items-center gap-3">
-          <span className="flex size-14 items-center justify-center rounded-3xl bg-orange-50 shadow-sm ring-1 ring-orange-100">
-            <img src="/icon.svg" alt="" aria-hidden="true" className="size-9" />
-          </span>
-          <img src="/logo-text.svg" alt="AlphaFox 灵狐量化" className="h-9" />
-        </div>
+        <img
+          src="/alphafox-lockup.svg"
+          alt="Alphafox"
+          className="h-16 w-auto"
+        />
       </div>
       <div className="space-y-2 text-center">
         <h1 className="text-xl font-bold tracking-tight text-slate-950">
-          登录 AlphaFox 后自动启用插件
+          登录 Alphafox 后自动启用插件
         </h1>
         <p className="mx-auto max-w-sm text-sm leading-relaxed text-slate-600">
-          已在网页登录可直接「重新检测」；未登录则先打开 AlphaFox 完成邮箱验证码登录。
+          已在网页登录可直接「重新检测」；未登录则先打开 Alphafox 完成邮箱验证码登录。
         </p>
       </div>
     </>
@@ -55,7 +54,7 @@ function SupportedExchangesPreview() {
       <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
         {EXCHANGE_CONFIGS.map((config) => (
           <div
-            className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1"
+            className="flex items-center gap-1.5 rounded-full bg-slate-50 px-2.5 py-1"
             key={config.key}
           >
             <ExchangeLogo exchange={config.key} size="sm" />
@@ -73,7 +72,7 @@ function SecurityNotice() {
       <div className="flex gap-3">
         <ShieldCheckIcon className="mt-0.5 size-5 shrink-0 text-orange-600" />
         <p>
-          插件不保存 AlphaFox 密码，只复用浏览器中的 AlphaFox 登录状态向官方服务提交交易所登录信息。
+          插件不保存 Alphafox 密码，只复用浏览器中的 Alphafox 登录状态向官方服务提交交易所登录信息。
         </p>
       </div>
     </div>
@@ -96,7 +95,7 @@ function LoginActions({ loading, onOpenLogin, onRefresh }: LoginFormProps) {
         onClick={onOpenLogin}
         type="button"
       >
-        打开 AlphaFox 登录
+        打开 Alphafox 登录
         <ArrowUpRightIcon className="ml-2 size-4" />
       </Button>
       <Button
