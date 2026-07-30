@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowUpRightIcon,
   CheckCircle2Icon,
@@ -63,6 +63,8 @@ interface ExchangeCredentialsPanelProps {
   readonly authMethodStatus?: AuthMethodStatusMap;
   readonly authMethods: readonly ExchangeAuthMethod[];
   readonly onMethodsChanged: () => Promise<void>;
+  /** Rendered directly under the instruction card (e.g. saved credentials). */
+  readonly afterInstructions?: ReactNode;
 }
 
 type CredentialMap = Partial<Record<ExchangeKey, ExchangeCredential>>;
@@ -74,6 +76,7 @@ const CREATE_RECORD_SELECT_VALUE = "__alphafox_create_record__";
 const EMPTY_LINKED_STATUSES: LinkedStatusMap = Object.freeze({});
 
 export function ExchangeCredentialsPanel({
+  afterInstructions,
   authMethodStatus,
   authMethods,
   onMethodsChanged,
@@ -101,6 +104,7 @@ export function ExchangeCredentialsPanel({
   return (
     <section className="space-y-4" aria-labelledby="exchange-sync-title">
       <InstructionCard />
+      {afterInstructions}
       <ProfileErrorMessage message={browserProfileState.error} />
       <ProfileErrorMessage message={linkedState.error} />
       <BitgetAutoSyncMessage state={bitgetAutoSyncState} />
