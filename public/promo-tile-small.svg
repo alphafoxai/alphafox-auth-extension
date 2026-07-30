@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="440" height="280" viewBox="0 0 440 280" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="440" y2="280" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FFF8F0"/>
+      <stop offset="55%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#FFF1E0"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="440" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#FF991F"/>
+      <stop offset="100%" stop-color="#FFB84D"/>
+    </linearGradient>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="4" stdDeviation="10" flood-color="#FF991F" flood-opacity="0.12"/>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="440" height="280" rx="0" fill="url(#bg)"/>
+
+  <!-- Soft decorative orb top-right -->
+  <circle cx="400" cy="30" r="90" fill="#FF991F" fill-opacity="0.08"/>
+  <circle cx="20" cy="260" r="70" fill="#FF991F" fill-opacity="0.06"/>
+
+  <!-- Left icon card -->
+  <rect x="28" y="70" width="128" height="140" rx="24" fill="#FFFFFF" filter="url(#cardShadow)" stroke="#FFE2C0" stroke-width="1"/>
+  <!-- Fox logo centered in card: card 28,70 size 128x140; fox after scale ~97x145, center roughly -->
+  <g transform="translate(48, 78) scale(0.10)">
+    <g transform="translate(-560, -400)">
+      <path d="M600 859.99V448.467C600 444.343 603.341 440.997 607.455 441.283C633.947 443.127 687.377 454.464 738.326 489.713C790.889 526.08 819.686 577.964 829.376 603.853C830.516 606.899 833.375 608.999 836.627 608.999H974.473C977.797 608.999 980.699 606.816 981.805 603.682C989.573 581.673 1012.28 537.164 1054.85 499.081C1097.95 460.53 1170.23 445.26 1207.73 441.629C1212.01 441.215 1215.61 444.632 1215.61 448.934V860.713C1215.61 864.837 1212.28 868.175 1208.15 868.278C1166.66 869.316 1082.4 878.881 1024.32 911.272C971.303 940.844 930.998 987.234 911.43 1015.2C907.935 1020.2 899.832 1019.72 896.775 1014.44C882.18 989.258 849.547 947.01 795.65 911.272C735.079 871.11 650.192 865.287 608.157 867.588C603.768 867.828 600 864.385 600 859.99Z" fill="#FF991F"/>
+      <path d="M600.58 1235.01L600.58 969.867C600.58 965.744 603.924 962.4 608.047 962.458C675.284 963.412 740.225 977.952 799.655 1043.32C866.429 1116.76 897.008 1187.09 1027.44 1187.09L1133.53 1187.09C1290.79 1187.09 1400 1305.96 1400 1452.22L1400 1676.91C1400 1684.08 1391.55 1686.6 1387.59 1680.62C1357.88 1635.76 1286.34 1537.49 1154.22 1537.49L897.008 1537.49C718.527 1537.49 600.58 1420.82 600.58 1235.01Z" fill="#FF991F"/>
+    </g>
+  </g>
+
+  <!-- Text block -->
+  <text x="180" y="108" font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="28" font-weight="700" fill="#1A1A1A">灵狐量化</text>
+  <text x="180" y="138" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" font-size="13" font-weight="500" fill="#FF991F" letter-spacing="0.3">AlphaFox Auth Sync</text>
+
+  <!-- Divider -->
+  <rect x="180" y="156" width="40" height="3" rx="1.5" fill="url(#accent)"/>
+
+  <!-- Tagline -->
+  <text x="180" y="190" font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="600" fill="#333333">交易所登录 Cookie</text>
+  <text x="180" y="214" font-family="system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif" font-size="15" font-weight="600" fill="#333333">一键同步到 AlphaFox</text>
+
+  <!-- Bottom accent bar -->
+  <rect x="0" y="274" width="440" height="6" fill="url(#accent)"/>
+</svg>
