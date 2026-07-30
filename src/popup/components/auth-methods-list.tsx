@@ -22,9 +22,10 @@ export function AuthMethodsList({
     return <EmptyMethods />;
   }
 
+  const activeCount = methods.filter((method) => method.isActive).length;
   return (
     <section className="space-y-3" aria-labelledby="saved-methods-title">
-      <MethodsHeader count={methods.length} />
+      <MethodsHeader activeCount={activeCount} count={methods.length} />
       <div className="space-y-2">
         {methods.map((method) => (
           <MethodRow
@@ -47,13 +48,23 @@ function EmptyMethods() {
   );
 }
 
-function MethodsHeader({ count }: { readonly count: number }) {
+function MethodsHeader({
+  activeCount,
+  count,
+}: {
+  readonly activeCount: number;
+  readonly count: number;
+}) {
+  const inactiveCount = count - activeCount;
   return (
     <div className="flex items-center justify-between">
       <h2 id="saved-methods-title" className="text-sm font-semibold text-slate-700">
         AlphaFox 已保存登录记录
       </h2>
-      <span className="text-xs text-slate-500">{count} 条启用中</span>
+      <span className="text-xs text-slate-500">
+        {activeCount} 条启用中
+        {inactiveCount > 0 ? ` · ${inactiveCount} 条失效` : ""}
+      </span>
     </div>
   );
 }
@@ -128,10 +139,10 @@ function ActiveBadge({ active }: { readonly active: boolean }) {
     <span
       className={cn(
         "rounded-full px-2 py-0.5 text-[11px] font-medium",
-        active ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+        active ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
       )}
     >
-      {active ? "启用中" : "已停用"}
+      {active ? "启用中" : "失效"}
     </span>
   );
 }

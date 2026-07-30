@@ -469,7 +469,9 @@ function InstructionCard() {
           </h2>
           <p>1. 首次绑定：点击交易所名称网页登录账号，然后点击“创建”。</p>
           <p>2. Bitget：首次手动绑定后，登录 Cookie 更新会自动同步已绑定记录。</p>
-          <p>3. 其它交易所：重新登录后，点击“同步”更新已绑定记录。</p>
+          <p>
+            3. 其它交易所：退出/过期后记录会显示「失效」，重新登录网页后点「同步」即可恢复，无需重新创建。
+          </p>
           <p>4. 多账号：在不同 Chrome Profile 中切换到不同记录后分别同步。</p>
         </div>
       </div>
@@ -566,6 +568,8 @@ function ExchangeCard({
 }) {
   const config = getExchangeConfig(configKey);
   const linkedMethod = findMethodById(existingMethods, linkedMethodId);
+  // Keep the local link even when the server method is inactive: cookie expiry
+  // deactivates the record, but users should re-sync the same id after re-login.
   const effectiveLinkedMethodId =
     linkedMethod?.id ?? (authMethodStatus === "loaded" ? undefined : linkedMethodId);
   const linked = Boolean(effectiveLinkedMethodId);
@@ -576,6 +580,7 @@ function ExchangeCard({
       <ExchangeCardHeader
         configKey={configKey}
         linked={linked}
+        linkedMethod={linkedMethod}
         status={authMethodStatus}
       />
       <ExchangeCardBody
@@ -592,6 +597,7 @@ function ExchangeCard({
         disabled={Boolean(mutating) || !browserProfile}
         hasCredential={hasCredential}
         linked={linked}
+        linkedMethod={linkedMethod}
         linkedMethodId={effectiveLinkedMethodId}
         loading={mutating === configKey}
         onOpenBindingDialog={onOpenBindingDialog}
@@ -604,10 +610,12 @@ function ExchangeCard({
 function ExchangeCardHeader({
   configKey,
   linked,
+  linkedMethod,
   status,
 }: {
   readonly configKey: ExchangeKey;
   readonly linked: boolean;
+  readonly linkedMethod?: ExchangeAuthMethod;
   readonly status: AuthMethodLoadStatus;
 }) {
   const config = getExchangeConfig(configKey);
@@ -628,7 +636,7 @@ function ExchangeCardHeader({
           <span className="block text-xs text-slate-500">网页登录状态</span>
         </span>
       </button>
-      <StatusPill linked={linked} status={status} />
+      <StatusPill linked={linked} linkedMethod={linkedMethod} status={status} />
     </div>
   );
 }
@@ -679,6 +687,7 @@ function ExchangeCardActions({
   disabled,
   hasCredential,
   linked,
+  linkedMethod,
   linkedMethodId,
   loading,
   onOpenBindingDialog,
@@ -688,6 +697,7 @@ function ExchangeCardActions({
   readonly disabled: boolean;
   readonly hasCredential: boolean;
   readonly linked: boolean;
+  readonly linkedMethod?: ExchangeAuthMethod;
   readonly linkedMethodId?: number;
   readonly loading: boolean;
   readonly onOpenBindingDialog: (
@@ -697,7 +707,9 @@ function ExchangeCardActions({
   readonly onSync: (exchange: ExchangeKey, methodId: number) => Promise<void>;
 }) {
   const buttonDisabled = disabled;
+  const inactive = Boolean(linkedMethod && !linkedMethod.isActive);
   const actionLabel = hasCredential ? (linked ? "切换" : "创建") : "绑定";
+  const syncLabel = inactive ? "同步恢复" : "同步";
 
   if (!linked || !linkedMethodId) {
     return (
@@ -724,9 +736,9 @@ function ExchangeCardActions({
         loading={loading}
         onClick={() => void onSync(configKey, linkedMethodId)}
         size="sm"
-        variant="outline"
+        variant={inactive ? "default" : "outline"}
       >
-        同步
+        {syncLabel}
       </Button>
       <Button
         className="flex-1"
@@ -766,15 +778,28 @@ function LinkedMethodSummary({
   readonly methodId: number;
 }) {
   const accountUsername = readAccountUsernameFromMetadata(method?.metaData);
+  const inactive = method ? !method.isActive : false;
   return (
-    <div className="flex flex-wrap gap-2 text-xs">
-      <span className="inline-flex items-center rounded-md border border-purple-200 bg-purple-100 px-2.5 py-1 font-semibold text-purple-800">
-        记录 #{methodId}
-      </span>
-      {accountUsername ? (
-        <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-2.5 py-1 font-semibold text-amber-800">
-          昵称：{accountUsername}
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2 text-xs">
+        <span className="inline-flex items-center rounded-md border border-purple-200 bg-purple-100 px-2.5 py-1 font-semibold text-purple-800">
+          记录 #{methodId}
         </span>
+        {inactive ? (
+          <span className="inline-flex items-center rounded-md border border-red-200 bg-red-100 px-2.5 py-1 font-semibold text-red-700">
+            失效
+          </span>
+        ) : null}
+        {accountUsername ? (
+          <span className="inline-flex items-center rounded-md border border-amber-200 bg-amber-100 px-2.5 py-1 font-semibold text-amber-800">
+            昵称：{accountUsername}
+          </span>
+        ) : null}
+      </div>
+      {inactive ? (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-[11px] leading-relaxed text-amber-800">
+          Cookie 已失效。重新登录交易所网页后点「同步恢复」即可，无需重新创建。
+        </p>
       ) : null}
     </div>
   );
@@ -833,6 +858,7 @@ function MethodRecordLine({
       <div className="flex items-center justify-between gap-2">
         <div className="truncate text-[11px] font-medium text-slate-600">
           记录 #{method.id}
+          {method.isActive ? "" : " · 失效"}
         </div>
         <ProfilePill browserProfile={browserProfile} method={method} />
       </div>
@@ -929,27 +955,40 @@ function AuthMethodStatusMessage({ status }: { readonly status: AuthMethodLoadSt
 
 function StatusPill({
   linked,
+  linkedMethod,
   status,
 }: {
   readonly linked: boolean;
+  readonly linkedMethod?: ExchangeAuthMethod;
   readonly status: AuthMethodLoadStatus;
 }) {
   const pending = !linked && status === "checking";
   const failed = !linked && status === "error";
+  const inactive = Boolean(linked && linkedMethod && !linkedMethod.isActive);
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-        linked
-          ? "bg-emerald-100 text-emerald-700"
-          : pending
-            ? "bg-orange-100 text-orange-700"
-            : failed
-              ? "bg-red-100 text-red-600"
-              : "bg-slate-100 text-slate-500"
+        inactive
+          ? "bg-red-100 text-red-700"
+          : linked
+            ? "bg-emerald-100 text-emerald-700"
+            : pending
+              ? "bg-orange-100 text-orange-700"
+              : failed
+                ? "bg-red-100 text-red-600"
+                : "bg-slate-100 text-slate-500"
       )}
     >
-      {linked ? "已绑定" : pending ? "检查中" : failed ? "检查失败" : "未绑定"}
+      {inactive
+        ? "已绑定·失效"
+        : linked
+          ? "已绑定"
+          : pending
+            ? "检查中"
+            : failed
+              ? "检查失败"
+              : "未绑定"}
     </span>
   );
 }
@@ -1200,6 +1239,9 @@ function formatMethodSelectLabel(method: ExchangeAuthMethod): string {
   const username = readAccountUsernameFromMetadata(method.metaData);
   const profileLabel = readBrowserProfileLabelFromMetadata(method.metaData);
   const parts = [`#${method.id}`];
+  if (!method.isActive) {
+    parts.push("失效");
+  }
   if (username) {
     parts.push(username);
   }
