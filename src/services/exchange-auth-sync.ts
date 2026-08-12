@@ -8,6 +8,10 @@ import {
   type BrowserProfileInfo,
 } from "@/lib/browser-profile";
 import { AuthService } from "@/services/auth";
+import {
+  assertBitgetSessionStillValid,
+  humanizeExchangeAuthError,
+} from "@/services/bitget-credential-validation";
 import type { AuthMethodInput, ExchangeAuthMethod } from "@/types/auth";
 
 export type LinkedAuthMethodMap = Partial<Record<ExchangeKey, number>>;
@@ -26,15 +30,37 @@ export async function saveExchangeAuthMethod({
   credential,
   methodId,
 }: SaveExchangeAuthMethodOptions): Promise<ExchangeAuthMethod> {
-  const input = toAuthMethodInput(credential, browserProfile);
-  const method = methodId
-    ? await AuthService.updateAuthMethod(methodId, input)
-    : await AuthService.createAuthMethod(input);
-  assertSavedMethod(method);
+  // Bitget: validate browser cookies against Bitget before AlphaFox accepts them.
+  // Avoids opaque "resolve exchange auth metadata … EOF" toasts for expired sessions.
   if (credential.exchange === "bitget") {
-    await writeLastSyncedBitgetCredential(browserProfile, credential.credential);
+    try {
+      await assertBitgetSessionStillValid(credential.credential);
+    } catch (error) {
+      throw new Error(
+        humanizeExchangeAuthError(
+          error instanceof Error ? error.message : String(error)
+        )
+      );
+    }
   }
-  return method;
+
+  const input = toAuthMethodInput(credential, browserProfile);
+  try {
+    const method = methodId
+      ? await AuthService.updateAuthMethod(methodId, input)
+      : await AuthService.createAuthMethod(input);
+    assertSavedMethod(method);
+    if (credential.exchange === "bitget") {
+      await writeLastSyncedBitgetCredential(browserProfile, credential.credential);
+    }
+    return method;
+  } catch (error) {
+    throw new Error(
+      humanizeExchangeAuthError(
+        error instanceof Error ? error.message : String(error)
+      )
+    );
+  }
 }
 
 export async function readLastSyncedBitgetCredential(

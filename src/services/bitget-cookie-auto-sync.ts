@@ -9,6 +9,7 @@ import {
   writeBitgetAutoSyncState,
   type BitgetAutoSyncState,
 } from "@/services/bitget-auto-sync";
+import { humanizeExchangeAuthError } from "@/services/bitget-credential-validation";
 import {
   readLastSyncedBitgetCredential,
   readLinkedAuthMethods,
@@ -131,5 +132,6 @@ function isBitgetCredentialCookieChange(
 }
 
 function readErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  return humanizeExchangeAuthError(raw);
 }
