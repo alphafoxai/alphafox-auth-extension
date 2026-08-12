@@ -57,6 +57,7 @@ import {
   writeLinkedAuthMethods,
   type LinkedAuthMethodMap,
 } from "@/services/exchange-auth-sync";
+import { humanizeExchangeAuthError } from "@/services/bitget-credential-validation";
 import type { ExchangeAuthMethod } from "@/types/auth";
 
 interface ExchangeCredentialsPanelProps {
@@ -1381,7 +1382,8 @@ function formatDateTime(value: string): string {
 }
 
 function readErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  const raw = error instanceof Error ? error.message : String(error);
+  return humanizeExchangeAuthError(raw);
 }
 
 export const BackgroundFetchedCookiesOrJwtTokenList = ExchangeCredentialsPanel;
