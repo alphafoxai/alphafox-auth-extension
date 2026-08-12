@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
+  // Chrome extension pages are not served from domain root; absolute /popup.js breaks load.
+  base: "./",
   plugins: [react()],
   resolve: {
     alias: {
