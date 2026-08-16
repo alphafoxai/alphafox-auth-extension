@@ -6,7 +6,7 @@ Browser extension that syncs exchange web-login sessions into AlphaFox.
 
 ### Issue tracker
 
-Matt Skills engineering issues, specs, and tickets live in the shared Feishu `Alphafox-Issues` tasklist; prefix titles with `[alphafox-auth-extension]`. See `docs/agents/issue-tracker.md`.
+Matt Skills engineering issues, specs, and tickets live in the shared Feishu `AlphaFox-Issues` tasklist; prefix titles with `[alphafox-auth-extension]`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
