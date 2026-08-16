@@ -288,7 +288,7 @@ function Header({
         <div className="flex min-w-0 items-center gap-3">
           <img
             src="/alphafox-lockup.svg"
-            alt="Alphafox"
+            alt="AlphaFox"
             className="h-12 w-auto shrink-0"
           />
           <div className="min-w-0">

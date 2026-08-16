@@ -15,7 +15,7 @@ import type {
 const JSON_HEADERS = { "Content-Type": "application/json" } as const;
 
 export class AuthService {
-  /** Open Alphafox account cookies page (auth gate redirects to login when needed). */
+  /** Open AlphaFox account cookies page (auth gate redirects to login when needed). */
   static openLoginPage(): void {
     chrome.tabs.create({ url: ALPHAFOX_APP_URL });
   }
