@@ -1,6 +1,6 @@
 # alphafox-auth-extension
 
-Browser extension that syncs exchange web-login sessions into Alphafox.
+Browser extension that syncs exchange web-login sessions into AlphaFox.
 
 ## Agent skills
 

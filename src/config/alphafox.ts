@@ -1,6 +1,6 @@
 export const ALPHAFOX_WEB_BASE_URL = "https://www.alphafox.app";
 
-/** Account cookies page — primary destination after opening Alphafox from the extension. */
+/** Account cookies page — primary destination after opening AlphaFox from the extension. */
 export const ALPHAFOX_COOKIES_PATH = "/zh/dashboard/account/cookies";
 export const ALPHAFOX_APP_URL = `${ALPHAFOX_WEB_BASE_URL}${ALPHAFOX_COOKIES_PATH}`;
 
