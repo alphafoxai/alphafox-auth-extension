@@ -6,11 +6,11 @@ Browser extension that syncs exchange web-login sessions into AlphaFox.
 
 ### Issue tracker
 
-Matt Skills engineering issues, specs, and tickets live in the shared Feishu `AlphaFox-Issues` tasklist; prefix titles with `[alphafox-auth-extension]`. See `docs/agents/issue-tracker.md`.
+Matt Skills engineering issues, specs, and tickets live in this repository's GitHub Issues; use the `gh` CLI for all operations. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Triage roles map to Feishu tasklist sections, while issue categories use the `Type` field. See `docs/agents/triage-labels.md`.
+Use the default triage labels: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
