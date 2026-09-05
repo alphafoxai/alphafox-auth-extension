@@ -8,7 +8,8 @@
     "storage",
     "activeTab",
     "tabs",
-    "webRequest"
+    "webRequest",
+    "scripting"
   ],
   "host_permissions": [
     "https://alphafox.app/*",
@@ -36,7 +37,10 @@
     "https://*.gate.io/*",
     "https://www.gate.com/*",
     "https://gate.com/*",
-    "https://*.gate.com/*"
+    "https://*.gate.com/*",
+    "https://fomo.family/*",
+    "https://prod-api.fomo.family/*",
+    "http://127.0.0.1/*"
   ],
   "action": {
     "default_title": "AlphaFox Auth Sync",

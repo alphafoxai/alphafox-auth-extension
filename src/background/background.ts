@@ -13,9 +13,17 @@ import {
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
 import {
+  FOMO_REQUEST_PATTERN,
+  handleFomoRequest,
+  handleFomoRuntimeMessage,
+  isFomoRequestUrl,
+} from "@/background/fomo-session";
+
+import {
   registerBitgetCookieAutoSync,
   syncLinkedBitgetCredential as syncLinkedBitgetCredentialService,
 } from "@/services/bitget-cookie-auto-sync";
+
 
 const STORAGE_KEYS = {
   csrfToken: "alphafox:csrfToken",
@@ -37,7 +45,11 @@ void captureCredentialsForAllExchanges().catch((error) => {
   console.warn("[AlphaFox] 初始抓取交易所凭证失败", error);
 });
 
-chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
+  if (handleFomoRuntimeMessage(message, sender, sendResponse)) {
+    return true;
+  }
+
   if (message.type === "GET_EXCHANGE_CREDENTIALS") {
     void getStoredCredentials().then(sendResponse).catch(toErrorResponse(sendResponse));
     return true;
@@ -60,14 +72,19 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, _sender, sendResp
   return false;
 });
 
+
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
+    if (isFomoRequestUrl(details.url)) {
+      void handleFomoRequest(details);
+      return;
+    }
     void captureCsrfToken(details.requestHeaders ?? []);
     void captureCredentialForUrl(details.url, details.requestHeaders ?? []).catch((error) => {
       console.warn("[AlphaFox] 自动抓取交易所凭证失败", error);
     });
   },
-  { urls: buildExchangeUrlPatterns() },
+  { urls: [...buildExchangeUrlPatterns(), FOMO_REQUEST_PATTERN] },
   ["requestHeaders", "extraHeaders"]
 );
 
