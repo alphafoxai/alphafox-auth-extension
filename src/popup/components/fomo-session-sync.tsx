@@ -1,159 +1,153 @@
-import { useEffect, useState } from "react";
-import { KeyRoundIcon, ShieldCheckIcon } from "lucide-react";
+import { useState } from "react";
+import { CheckIcon, CopyIcon, FileTextIcon, RefreshCwIcon, ShieldCheckIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-
-interface FomoResultMessage {
-  readonly type?: unknown;
-  readonly result?: unknown;
-}
-
-type FomoSyncStatus = "idle" | "arming" | "armed" | "success" | "timeout" | "error";
+import { captureCurrentFomoSession, type FomoCapturedSession } from "@/services/fomo-capture";
 
 export function FomoSessionSync() {
-  const [syncKey, setSyncKey] = useState("");
-  const [status, setStatus] = useState<FomoSyncStatus>("idle");
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<FomoCapturedSession | null>(null);
+  const [copiedType, setCopiedType] = useState<"full" | "storageState" | null>(null);
 
-  useEffect(() => {
-    const listener = (message: FomoResultMessage): void => {
-      if (message.type !== "FOMO_SYNC_RESULT") {
-        return;
-      }
-      setBusy(false);
-      setSyncKey("");
-      if (message.result === "success") {
-        setStatus("success");
-      } else if (message.result === "timeout") {
-        setStatus("timeout");
-      } else {
-        setStatus("error");
-      }
-    };
-
-    const onMessage = chrome.runtime?.onMessage;
-    onMessage?.addListener(listener);
-    return () => onMessage?.removeListener(listener);
-  }, []);
-
-  async function startSync(): Promise<void> {
-    if (!syncKey || busy) {
-      return;
-    }
-    setBusy(true);
-    setStatus("arming");
+  async function handleCapture() {
+    setLoading(true);
+    setError(null);
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "START_FOMO_SYNC",
-        syncKey,
-      });
-      if (!response?.ok) {
-        throw new Error(readFomoError(response?.error));
-      }
-      setStatus("armed");
-    } catch (error) {
-      setBusy(false);
-      setSyncKey("");
-      setStatus("error");
-      void error;
+      const data = await captureCurrentFomoSession();
+      setSession(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "抓取失败，请确认当前标签页为 Fomo");
+    } finally {
+      setLoading(false);
     }
   }
 
-  async function clearServerSession(): Promise<void> {
-    if (!syncKey || busy) {
-      return;
-    }
-    setBusy(true);
+  async function handleCopy(type: "full" | "storageState") {
+    if (!session) return;
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "CLEAR_FOMO_SESSION",
-        syncKey,
-      });
-      if (!response?.ok) {
-        throw new Error(readFomoError(response?.error));
-      }
-      setStatus("success");
-    } catch (error) {
-      setStatus("error");
-      void error;
-    } finally {
-      setBusy(false);
-      setSyncKey("");
+      const text =
+        type === "full"
+          ? JSON.stringify(session, null, 2)
+          : JSON.stringify(session.storageState, null, 2);
+      await navigator.clipboard.writeText(text);
+      setCopiedType(type);
+      setTimeout(() => setCopiedType(null), 2000);
+    } catch {
+      setError("复制到剪贴板失败，请手动选择复制");
     }
   }
 
   return (
-    <section className="rounded-2xl border border-violet-200/80 bg-violet-50/70 p-4 text-slate-900 shadow-sm" aria-labelledby="fomo-sync-title">
-      <div className="flex gap-3">
+    <section
+      className="rounded-2xl border border-violet-200/80 bg-gradient-to-br from-violet-50/80 via-white to-purple-50/50 p-4 text-slate-900 shadow-sm"
+      aria-labelledby="fomo-capture-title"
+    >
+      <div className="flex items-start gap-3">
         <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-100 text-violet-700 ring-1 ring-violet-200">
           <ShieldCheckIcon className="size-5" />
         </span>
         <div className="min-w-0 flex-1 space-y-3">
           <div>
-            <h2 id="fomo-sync-title" className="text-sm font-semibold text-slate-950">
-              Fomo 本地会话同步
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 id="fomo-capture-title" className="text-sm font-semibold text-slate-950">
+                Fomo 登录态一键提取
+              </h2>
+              {session?.hasPrivyToken ? (
+                <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
+                  Privy Token 已就绪
+                </span>
+              ) : null}
+            </div>
             <p className="mt-1 text-xs leading-relaxed text-slate-600">
-              仅在你点击后监听当前 Fomo 标签页一次请求，令牌只会直接发送到本机服务，不会保存到插件。
+              提取当前 Fomo 标签页的全部 Cookies 与 LocalStorage（包含 Privy 令牌与会话），支持一键复制到剪贴板。
             </p>
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              aria-label="Fomo SYNC_API_KEY"
-              autoComplete="off"
-              className="bg-white"
-              maxLength={512}
-              onChange={(event) => setSyncKey(event.target.value)}
-              placeholder="SYNC_API_KEY"
-              spellCheck={false}
-              type="password"
-              value={syncKey}
-            />
-            <Button disabled={busy || !syncKey} loading={status === "arming"} onClick={() => void startSync()} type="button">
-              <KeyRoundIcon className="mr-1.5 size-4" />
-              同步当前 Fomo
+
+          {error ? (
+            <div className="rounded-lg bg-red-50 p-2.5 text-xs text-red-700 border border-red-200/70">
+              {error}
+            </div>
+          ) : null}
+
+          {session ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-3 space-y-2 text-xs text-slate-700 shadow-inner">
+              <div className="flex items-center justify-between font-mono text-[11px] text-slate-500">
+                <span>抓取时间: {new Date(session.capturedAt).toLocaleTimeString()}</span>
+                <span>目标: fomo.family</span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-100">
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-900">{session.cookies.length}</span>
+                  <span className="text-slate-500">个 Cookies</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-semibold text-slate-900">
+                    {Object.keys(session.localStorage).length}
+                  </span>
+                  <span className="text-slate-500">项 LocalStorage</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <Button
+              disabled={loading}
+              loading={loading}
+              onClick={() => void handleCapture()}
+              type="button"
+              className="bg-violet-600 hover:bg-violet-700 text-white"
+            >
+              <RefreshCwIcon className="mr-1.5 size-3.5" />
+              {session ? "重新抓取 Fomo 会话" : "抓取当前 Fomo 会话"}
             </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button disabled={busy || !syncKey} onClick={() => void clearServerSession()} type="button" variant="outline">
-              清除本地服务会话
-            </Button>
-            <span className="text-xs text-slate-600" role="status">
-              {readStatusText(status)}
-            </span>
+
+            {session ? (
+              <>
+                <Button
+                  onClick={() => void handleCopy("full")}
+                  type="button"
+                  variant="outline"
+                  className={copiedType === "full" ? "border-emerald-500 text-emerald-700 bg-emerald-50" : ""}
+                >
+                  {copiedType === "full" ? (
+                    <>
+                      <CheckIcon className="mr-1.5 size-3.5" />
+                      已复制完整 JSON
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon className="mr-1.5 size-3.5" />
+                      一键复制 JSON
+                    </>
+                  )}
+                </Button>
+
+                <Button
+                  onClick={() => void handleCopy("storageState")}
+                  type="button"
+                  variant="ghost"
+                  className={copiedType === "storageState" ? "text-emerald-700 font-medium" : "text-slate-600"}
+                  title="复制为标准 Playwright / Puppeteer storageState.json 格式"
+                >
+                  {copiedType === "storageState" ? (
+                    <>
+                      <CheckIcon className="mr-1.5 size-3.5" />
+                      已复制 storageState
+                    </>
+                  ) : (
+                    <>
+                      <FileTextIcon className="mr-1.5 size-3.5" />
+                      复制 storageState
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
     </section>
   );
-}
-
-function readFomoError(error: unknown): string {
-  if (typeof error !== "string") {
-    return "FOMO_OPERATION_FAILED";
-  }
-  if (error.startsWith("FOMO_RECEIVER_HTTP_")) {
-    return error;
-  }
-  return error === "FOMO_TAB_REQUIRED" || error === "FOMO_SYNC_BUSY"
-    ? error
-    : "FOMO_OPERATION_FAILED";
-}
-
-function readStatusText(status: FomoSyncStatus): string {
-  switch (status) {
-    case "arming":
-      return "正在准备当前 Fomo 标签页…";
-    case "armed":
-      return "已准备，等待一次 Fomo 读取请求（60 秒内）";
-    case "success":
-      return "同步成功";
-    case "timeout":
-      return "等待超时，请重新点击同步";
-    case "error":
-      return "同步失败，请检查本地服务和 SYNC_API_KEY";
-    default:
-      return "请先在当前标签页打开 https://fomo.family";
-  }
 }

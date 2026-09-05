@@ -8,7 +8,8 @@
     "storage",
     "activeTab",
     "tabs",
-    "webRequest"
+    "webRequest",
+    "scripting"
   ],
   "host_permissions": [
     "https://alphafox.app/*",
