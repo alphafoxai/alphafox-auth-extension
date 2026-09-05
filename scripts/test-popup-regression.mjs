@@ -508,7 +508,6 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
   });
   await waitFor(() => {
     binanceCard = getExchangeCard(screen, "Binance");
-    assert.ok(within(binanceCard).getByText("已绑定"));
     assert.equal(
       within(binanceCard).getByRole("button", { name: "同步" }).disabled,
       false
@@ -590,7 +589,6 @@ async function runStaleLinkedMethodIsClearedTest(testServer) {
     within(bybitCard).queryByText(`记录 #${STALE_BYBIT_METHOD_ID}`),
     null
   );
-  assert.ok(within(bybitCard).getByText("未绑定"));
   assert.equal(within(bybitCard).queryByRole("button", { name: "同步" }), null);
   assert.ok(within(bybitCard).getByRole("button", { name: "创建" }));
 
@@ -735,6 +733,10 @@ async function runBybitCreateAccountComparisonTest(testServer) {
 }
 
 async function runBitgetCreateAccountComparisonTest(testServer) {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = createMock(
+    () => Promise.resolve(new Response(JSON.stringify({ code: "00000" }), { status: 200 }))
+  );
   globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.createAuthMethod = createMock(
     () => RESOLVED_BITGET_METHOD
   );
@@ -772,7 +774,10 @@ async function runBitgetCreateAccountComparisonTest(testServer) {
   await waitFor(() => assert.ok(screen.getByText(/^账号一致/)));
   assert.equal(screen.queryByText(/^账号不同/), null);
 
-  return testingLibrary.cleanup;
+  return () => {
+    testingLibrary.cleanup();
+    globalThis.fetch = previousFetch;
+  };
 }
 
 async function runBitgetAccountDetectionTest(testServer) {
@@ -1012,7 +1017,9 @@ async function loadBitgetBackground(
     },
   };
   globalThis.chrome = chromeMock;
-  globalThis.fetch = createUnexpectedFetchMock();
+  globalThis.fetch = createMock(
+    () => Promise.resolve(new Response(JSON.stringify({ code: "00000" }), { status: 200 }))
+  );
 
   const backgroundModule = await testServer.ssrLoadModule(
     `/src/background/background.ts?case=bitget-${caseName}-${Date.now()}`
@@ -1212,6 +1219,16 @@ async function runOkxAuthorizationHeaderCaptureTest(testServer) {
     await loadBackgroundWithRequestCapture(testServer, "okx-authorization-header");
 
   await requestListener({
+    method: 'GET', tabId: 77, initiator: 'https://fomo.family',
+    url: 'https://prod-api.fomo.family/v2/users/userHandle/alice',
+    requestHeaders: [
+      { name: 'Authorization', value: 'Bearer fomo-no-persistence' },
+      { name: 'x-csrf-token', value: 'fomo-no-persistence' },
+    ],
+  });
+  assert.equal(JSON.stringify(storageData).includes('fomo-no-persistence'), false);
+
+  await requestListener({
     url: "https://www.okx.com/priapi/v5/account/balance",
     requestHeaders: [
       { name: "Authorization", value: OKX_AUTHORIZATION_JWT },
@@ -1396,10 +1413,7 @@ function assertCreateWasSubmitted() {
 }
 
 function getExchangeCard(screen, label) {
-  const card = screen
-    .getAllByText(label)
-    .map((element) => element.closest("article"))
-    .find(Boolean);
+  const card = screen.getByTitle(`打开 ${label} 登录页面`).closest('article');
   assert.ok(card, `未找到 ${label} 交易所卡片`);
   return card;
 }

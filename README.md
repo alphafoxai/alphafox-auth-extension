@@ -35,6 +35,21 @@ Bitget 必须同时读取到 `bt_newsessionid` 和 `bt_rtoken`。缺少任一 Co
 
 多浏览器 Profile 使用时，每个 Profile 可以绑定同一个交易所的不同记录，适合在同一个 AlphaFox 账号下管理多个交易所账号。
 
+## Fomo 本地会话同步
+
+Fomo 同步是独立于交易所记录的本地流程，不会把 Fomo 加入通用交易所配置。先在本机启动 `alphafox-fomo-query`，使用与查询服务不同的密钥：
+
+- `SYNC_API_KEY`：仅用于插件向 `http://127.0.0.1:3000/v1/session` 写入或清除内存中的 Fomo 会话。
+- `QUERY_API_KEY`：仅用于查询服务的 profile/history 接口，不能写入 Fomo 会话。
+
+在当前 Chrome 标签页打开 `https://fomo.family` 后，在插件的「Fomo 本地会话同步」区域输入 `SYNC_API_KEY` 并点击同步。插件只会在点击后对这个标签页开启一次、最长 60 秒的监听，读取一次 Fomo `Authorization: Bearer` 请求并直接上传到固定本机地址；不会自动监听、读取 Cookie、收集刷新令牌或把 Fomo 令牌写入 Chrome storage、日志或 popup。同步或清除操作完成后，输入框会清空。
+
+「清除本地服务会话」只清除查询服务内存中的会话，不会撤销 Fomo 浏览器登录。查询服务重启后需要重新同步。不要在聊天、文件或日志中保存真实 Fomo 令牌。
+
+本地验证：TypeScript 检查、旧 popup 回归、Fomo 同步行为测试及构建通过。Fomo 请求已与通用交易所 CSRF/凭据存储管线隔离，并有回归断言。浏览器 host permission 使用 `http://127.0.0.1/*`，代码中的上传地址仍固定为 `http://127.0.0.1:3000/v1/session`。
+
+2026-09-05 经授权的内存采集测试中，真实 token 上传到本地服务返回 200，但服务端直接查询 Fomo 返回 502 `FOMO_UNAVAILABLE`；测试后已清除 token。该结果不代表查询端到端通过，也不代表本次构建已安装到用户浏览器验证。加载 `dist` 后仍需通过插件可见操作验证；上传成功与查询成功须分别判断。
+
 ## 下载最新打包文件
 
 每次推送到 `main`（或手动触发 CI）会自动构建 Chrome 扩展包，并发布到 GitHub Releases。
