@@ -9,7 +9,6 @@ import type { ExchangeAuthMethod, Session } from "@/types/auth";
 import { Alert } from "./components/alert";
 import { AuthMethodsList } from "./components/auth-methods-list";
 import { ExchangeCredentialsPanel } from "./components/background-fetched-cookies-list";
-import { FomoSessionSync } from "./components/fomo-session-sync";
 import { LoginForm } from "./components/login-form";
 
 interface AlertState {
@@ -248,7 +247,6 @@ export default function Popup() {
             />
           </div>
         ) : null}
-        <FomoSessionSync />
 
         {alert.show ? (
           <Alert
