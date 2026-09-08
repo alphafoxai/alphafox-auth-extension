@@ -1,28 +1,23 @@
 import assert from "node:assert/strict";
-import { captureCurrentFomoSession, extractEssentialFomoAuth } from "../src/services/fomo-capture.ts";
+import {
+  captureFomoExchangeCredential,
+  extractEssentialFomoAuth,
+  isFomoAppPageUrl,
+  isFomoFamilyHostname,
+  toFomoExchangeCredential,
+} from "../src/services/fomo-capture.ts";
 
 console.log("=== Testing Fomo Essential Capture Service ===");
 
-// 1. Test: rejects non-fomo tab
-globalThis.chrome = {
-  tabs: {
-    query: async () => [{ id: 1, url: "https://google.com" }],
-  },
-  cookies: {
-    getAll: async () => [],
-  },
-  scripting: {
-    executeScript: async () => [],
-  },
-};
+assert.equal(isFomoFamilyHostname("fomo.family"), true);
+assert.equal(isFomoFamilyHostname("prod-api.fomo.family"), true);
+assert.equal(isFomoFamilyHostname("www.fomo.family"), true);
+assert.equal(isFomoFamilyHostname("binance.com"), false);
+assert.equal(isFomoAppPageUrl("https://fomo.family/profile/alice"), true);
+assert.equal(isFomoAppPageUrl("https://www.fomo.family/"), true);
+assert.equal(isFomoAppPageUrl("https://prod-api.fomo.family/v2/users/me"), false);
+console.log("✓ Fomo host helpers distinguish app pages from prod-api");
 
-await assert.rejects(
-  () => captureCurrentFomoSession(),
-  /请先在当前浏览器窗口打开并切换到 https:\/\/fomo\.family 页面/
-);
-console.log("✓ Correctly rejects non-Fomo tab");
-
-// 2. Test: filters out 30KB bloat and keeps only essential auth
 const mockCookies = [
   {
     name: "privy-session",
@@ -56,7 +51,6 @@ const mockCookies = [
   },
 ];
 
-// Mock JWT payload with sub and exp
 const mockJwtHeader = Buffer.from(JSON.stringify({ alg: "ES256", typ: "JWT" })).toString("base64url");
 const mockJwtPayload = Buffer.from(JSON.stringify({
   sub: "did:privy:user123",
@@ -85,9 +79,58 @@ assert.equal(Object.keys(result.auth.cookies).length, 2);
 assert.ok(!("tradingview.chartproperties" in result.auth));
 assert.ok(!("statsig.cached.evaluations.123" in result.auth));
 
-// Size check: essential auth must be very compact (< 1000 chars)
 const authJson = JSON.stringify(result.auth);
 console.log(`✓ Essential auth payload size: ${authJson.length} bytes (was ~35,000 bytes)`);
 assert.ok(authJson.length < 1000);
+
+const credential = toFomoExchangeCredential(result);
+assert.equal(credential?.exchange, "fomo");
+assert.equal(credential?.authType, "privy");
+assert.equal(credential?.account?.id, "did:privy:user123");
+assert.equal(credential?.account?.username, "did:privy:user123");
+assert.equal(credential?.account?.source, "fomo jwt sub");
+const parsed = JSON.parse(credential.credential);
+assert.equal(parsed.token, mockToken);
+assert.equal(parsed.refreshToken, "refresh-token-xyz");
+assert.equal(parsed.cookies["__cf_bm"], "cf-token-abc");
+assert.ok(parsed.cookieHeader.includes("privy-session=t"));
+console.log("✓ Fomo exchange credential uses privy JSON with JWT sub");
+
+assert.equal(
+  toFomoExchangeCredential({
+    ...result,
+    auth: { ...result.auth, token: "" },
+  }),
+  null
+);
+console.log("✓ Missing token does not produce an exchange credential");
+
+globalThis.chrome = {
+  tabs: {
+    query: async () => [{ id: 1, url: "https://google.com" }],
+  },
+  cookies: {
+    getAll: async () => [],
+  },
+  scripting: {
+    executeScript: async () => {
+      throw new Error("should not inject into a non-Fomo tab");
+    },
+  },
+};
+
+const missingTab = await captureFomoExchangeCredential();
+assert.equal(missingTab, null);
+console.log("✓ Capture returns null when no Fomo tab is open");
+
+globalThis.chrome = {
+  cookies: {
+    getAll: async () => mockCookies,
+  },
+};
+
+const noTabsApi = await captureFomoExchangeCredential();
+assert.equal(noTabsApi, null);
+console.log("✓ Capture returns null without throwing when tabs API is missing");
 
 console.log("All Fomo essential capture tests passed!");

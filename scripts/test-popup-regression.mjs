@@ -282,6 +282,15 @@ try {
   console.log("✓ OKX 按需抓取会读取当前 okx.com 标签页域名 Cookie");
 
   installServiceMocks();
+  cleanup = await runFomoExchangeCardReplacesLocalSyncUiTest(server);
+  cleanup();
+  console.log("✓ Fomo 作为交易所卡片展示，不再使用本地复制/同步 UI");
+
+  cleanup = await runFomoCredentialCaptureTest(server);
+  cleanup();
+  console.log("✓ Fomo 会抓取 Privy token 并隔离 CSRF");
+
+  installServiceMocks();
   cleanup = await runOkxAuthorizationHeaderCaptureTest(server);
   cleanup();
   console.log("✓ OKX 页面请求里的 Authorization 头会被保存为登录凭证");
@@ -463,7 +472,7 @@ async function runCachedPopupStartupTest(testServer) {
   await waitFor(() => {
     assert.equal(
       globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAuthMethods.calls.length,
-      5
+      6
     );
   });
 
@@ -477,6 +486,7 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
     bitget: createDeferred(),
     bybit: createDeferred(),
     gate: createDeferred(),
+    fomo: createDeferred(),
   };
   globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(
     () => CACHED_SESSION
@@ -520,6 +530,7 @@ async function runProgressiveAuthMethodsStartupTest(testServer) {
     pendingMethods.bitget.resolve([]);
     pendingMethods.bybit.resolve([]);
     pendingMethods.gate.resolve([]);
+    pendingMethods.fomo.resolve([]);
     await Promise.resolve();
   });
 
@@ -1210,6 +1221,108 @@ async function runOkxHostCookieCaptureTest(testServer) {
   assert.equal(response.credential?.exchange, "okx");
   assert.equal(response.credential?.authType, "authorization");
   assert.equal(response.credential?.credential, "okx-host-token");
+
+  return () => {};
+}
+
+async function runFomoExchangeCardReplacesLocalSyncUiTest(testServer) {
+  globalThis.chrome = createChromeMock({
+    sendMessage: createMock((message) => handleRuntimeMessage(message, {})),
+  });
+
+  const [{ default: React }, testingLibrary, popupModule] = await Promise.all([
+    import("react"),
+    import("@testing-library/react"),
+    testServer.ssrLoadModule("/src/popup/popup.tsx"),
+  ]);
+  const { render, screen, waitFor } = testingLibrary;
+
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.getCurrentSession = createMock(
+    () => CACHED_SESSION
+  );
+  globalThis.__ALPHAFOX_AUTH_SERVICE_MOCK__.listAuthMethods = createMock(() => []);
+
+  render(React.createElement(popupModule.default));
+
+  await waitFor(() => assert.ok(getExchangeCard(screen, "Fomo")));
+  assert.equal(screen.queryByText("Fomo 登录凭据精简提取"), null);
+  assert.equal(screen.queryByText("Fomo 本地会话同步"), null);
+  assert.equal(screen.queryByText("一键复制精简凭据"), null);
+
+  return testingLibrary.cleanup;
+}
+
+async function runFomoCredentialCaptureTest(testServer) {
+  const fomoJwtPayload = Buffer.from(
+    JSON.stringify({ sub: "did:privy:user123" })
+  ).toString("base64url");
+  const fomoToken = `hdr.${fomoJwtPayload}.sig`;
+  const { requestListener, runtimeListener, storageData, chromeMock } =
+    await loadBackgroundWithRequestCapture(testServer, "fomo-privy-capture");
+
+  chromeMock.tabs.query = createMock(() => [
+    { id: 91, url: "https://fomo.family/" },
+  ]);
+  chromeMock.cookies.getAll = createMock((query) => {
+    if (query.domain === "fomo.family") {
+      return [
+        {
+          name: "privy-session",
+          value: "session-1",
+          domain: ".fomo.family",
+          path: "/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "no_restriction",
+        },
+        {
+          name: "__cf_bm",
+          value: "cf-token",
+          domain: ".fomo.family",
+          path: "/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "no_restriction",
+        },
+      ];
+    }
+    return [];
+  });
+  chromeMock.scripting = {
+    executeScript: createMock(async () => [
+      {
+        result: {
+          "privy:token": JSON.stringify(fomoToken),
+          "privy:refresh_token": JSON.stringify("refresh-1"),
+        },
+      },
+    ]),
+  };
+
+  await requestListener({
+    method: "GET",
+    tabId: 91,
+    initiator: "https://fomo.family",
+    url: "https://prod-api.fomo.family/v2/users/userHandle/alice",
+    requestHeaders: [
+      { name: "Authorization", value: "Bearer fomo-no-persistence" },
+      { name: "x-csrf-token", value: "fomo-no-persistence" },
+    ],
+  });
+  assert.equal(JSON.stringify(storageData).includes("fomo-no-persistence"), false);
+
+  const missing = await sendBackgroundMessage(runtimeListener, {
+    type: "CAPTURE_EXCHANGE_CREDENTIAL",
+    exchange: "fomo",
+  });
+  assert.equal(missing.ok, true);
+  assert.equal(missing.credential?.exchange, "fomo");
+  assert.equal(missing.credential?.authType, "privy");
+  assert.equal(missing.credential?.account?.id, "did:privy:user123");
+  const parsed = JSON.parse(missing.credential.credential);
+  assert.equal(parsed.token, fomoToken);
+  assert.equal(parsed.refreshToken, "refresh-1");
+  assert.equal(parsed.cookies["__cf_bm"], "cf-token");
 
   return () => {};
 }

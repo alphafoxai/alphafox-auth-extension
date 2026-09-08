@@ -39,8 +39,8 @@
     "https://gate.com/*",
     "https://*.gate.com/*",
     "https://fomo.family/*",
-    "https://prod-api.fomo.family/*",
-    "http://127.0.0.1/*"
+    "https://www.fomo.family/*",
+    "https://*.fomo.family/*"
   ],
   "action": {
     "default_title": "AlphaFox Auth Sync",

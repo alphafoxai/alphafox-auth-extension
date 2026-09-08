@@ -13,11 +13,10 @@ import {
 } from "@/config/exchanges";
 import { detectExchangeAccount } from "@/config/exchange-account";
 import {
-  FOMO_REQUEST_PATTERN,
-  handleFomoRequest,
-  handleFomoRuntimeMessage,
-  isFomoRequestUrl,
-} from "@/background/fomo-session";
+  captureFomoExchangeCredential,
+  FOMO_INCOMPLETE_CREDENTIAL_MESSAGE,
+  isFomoFamilyHostname,
+} from "@/services/fomo-capture";
 
 import {
   registerBitgetCookieAutoSync,
@@ -46,10 +45,6 @@ void captureCredentialsForAllExchanges().catch((error) => {
 });
 
 chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendResponse) => {
-  if (handleFomoRuntimeMessage(message, sender, sendResponse)) {
-    return true;
-  }
-
   if (message.type === "GET_EXCHANGE_CREDENTIALS") {
     void getStoredCredentials().then(sendResponse).catch(toErrorResponse(sendResponse));
     return true;
@@ -76,7 +71,8 @@ chrome.runtime.onMessage.addListener((message: RuntimeMessage, sender, sendRespo
 chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
     if (isFomoRequestUrl(details.url)) {
-      void handleFomoRequest(details);
+      // Fomo hosts share x-csrf-token with Binance CSRF storage. Never capture
+      // CSRF or cookie-only credentials from fomo.family / prod-api.fomo.family.
       return;
     }
     void captureCsrfToken(details.requestHeaders ?? []);
@@ -84,7 +80,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
       console.warn("[AlphaFox] 自动抓取交易所凭证失败", error);
     });
   },
-  { urls: [...buildExchangeUrlPatterns(), FOMO_REQUEST_PATTERN] },
+  { urls: buildExchangeUrlPatterns() },
   ["requestHeaders", "extraHeaders"]
 );
 
@@ -113,6 +109,14 @@ async function captureRequestedExchange(
     throw new Error("交易所参数无效");
   }
   const config = getExchangeConfig(exchange);
+  if (config.key === "fomo") {
+    const fomoCredential = await captureFomoExchangeCredential();
+    if (fomoCredential) {
+      return saveCredential(fomoCredential);
+    }
+    throw new Error(FOMO_INCOMPLETE_CREDENTIAL_MESSAGE);
+  }
+
   const activeTabCredential = await captureCredentialForActiveTab(config);
   if (activeTabCredential) {
     return activeTabCredential;
@@ -133,9 +137,21 @@ async function captureRequestedExchange(
 async function captureCredentialsForAllExchanges(): Promise<readonly ExchangeCredential[]> {
   const results = await Promise.all([
     captureCredentialForActiveTab(),
-    ...EXCHANGE_CONFIGS.map((config) => captureCredentialForExchange(config)),
+    ...EXCHANGE_CONFIGS.map((config) =>
+      config.key === "fomo"
+        ? captureAndSaveFomoCredential()
+        : captureCredentialForExchange(config)
+    ),
   ]);
   return results.filter((credential): credential is ExchangeCredential => Boolean(credential));
+}
+
+async function captureAndSaveFomoCredential(): Promise<ExchangeCredential | null> {
+  const credential = await captureFomoExchangeCredential();
+  if (!credential) {
+    return null;
+  }
+  return saveCredential(credential);
 }
 
 async function captureCredentialForActiveTab(
@@ -161,6 +177,9 @@ async function captureCredentialForUrl(
   const config = findExchangeConfigByHost(url.hostname);
   if (!config) {
     return null;
+  }
+  if (config.key === "fomo") {
+    return captureAndSaveFomoCredential();
   }
 
   const cookies = dedupeCookies([
@@ -418,6 +437,14 @@ function captureCsrfToken(headers: readonly chrome.webRequest.HttpHeader[]): voi
 
 function isCsrfHeader(name: string): boolean {
   return ["csrftoken", "csrf-token", "x-csrf-token"].includes(name.toLowerCase());
+}
+
+function isFomoRequestUrl(rawUrl: string): boolean {
+  try {
+    return isFomoFamilyHostname(new URL(rawUrl).hostname);
+  } catch {
+    return false;
+  }
 }
 
 function readStoredCredentials(value: unknown): StoredCredentials {

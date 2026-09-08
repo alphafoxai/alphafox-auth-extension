@@ -1,6 +1,6 @@
 # Privacy Policy for AlphaFox Auth Sync Extension
 
-**Last Updated:** July 30, 2026
+**Last Updated:** September 8, 2026
 
 ## Overview
 
@@ -25,6 +25,7 @@ request headers from these supported exchanges:
 - Bitget: the `bt_newsessionid` and `bt_rtoken` Cookies.
 - Bybit: the `secure-token` Cookie.
 - Gate.io: the `token` Cookie.
+- Fomo: Privy `token` / `refresh_token` from `fomo.family` localStorage, plus essential Privy and Cloudflare cookies.
 
 Chrome's Cookies API returns cookies available for a supported exchange domain.
 The Extension examines those cookies to locate the required authentication
@@ -61,8 +62,10 @@ The Extension's background service checks supported exchange sessions when it
 starts, when the user requests a refresh, when a supported exchange page
 finishes loading, and when matching requests on a supported exchange contain a
 Cookie, CSRF, or Authorization header that can contribute to credential
-detection. These checks can occur before the user chooses to send a credential
-to AlphaFox.
+detection. Fomo additionally reads `fomo.family` localStorage for Privy tokens
+when a Fomo tab is open. These checks can occur before the user chooses to send
+a credential to AlphaFox. Fomo request headers are not written into the Binance
+CSRF store.
 
 The first AlphaFox credential record is transmitted only after the user chooses
 Create or Sync in the Extension popup. After the user manually binds a Bitget

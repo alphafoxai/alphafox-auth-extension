@@ -1,4 +1,4 @@
-export type ExchangeKey = "binance" | "okx" | "bitget" | "bybit" | "gate";
+export type ExchangeKey = "binance" | "okx" | "bitget" | "bybit" | "gate" | "fomo";
 
 export interface ExchangeCookie {
   readonly name: string;
@@ -127,6 +127,19 @@ export const EXCHANGE_CONFIGS: readonly ExchangeConfig[] = [
     requiredCookieNames: ["token"],
     credentialHelp: "请先在 Gate.io 网页完成登录，然后点击立即刷新。",
     buildCredential: ({ cookies }) => findCookieValue(cookies, "token"),
+  },
+  {
+    key: "fomo",
+    label: "Fomo",
+    authType: "privy",
+    authLabel: "网页登录状态",
+    primaryUrl: "https://fomo.family",
+    domains: ["fomo.family"],
+    requiredCookieNames: ["privy-token"],
+    credentialHelp:
+      "请先在 Fomo 网页完成登录，然后点击立即刷新。需要读取 Privy token 与 Cloudflare Cookie。",
+    // Token lives in localStorage (`privy:token`); cookies alone are not enough.
+    buildCredential: () => null,
   },
 ];
 

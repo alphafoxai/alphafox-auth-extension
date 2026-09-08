@@ -37,6 +37,11 @@ const EXCHANGE_BRANDS: Record<ExchangeKey, ExchangeBrand> = {
     logoSrc: "/exchanges/gate.svg",
     markClassName: "bg-emerald-600 text-white",
   },
+  fomo: {
+    label: "Fomo",
+    logoSrc: "/exchanges/fomo.svg",
+    markClassName: "bg-violet-600 text-white",
+  },
 };
 
 const SIZE_CLASS: Record<
