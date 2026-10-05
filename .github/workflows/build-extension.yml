@@ -39,6 +39,10 @@ jobs:
           name: alphafox-auth-extension
           path: alphafox-auth-extension.zip
           if-no-files-found: error
+          # The zip is also published to the `latest` release below, so the
+          # Actions artifact is only a per-run copy. Default 90-day retention
+          # accumulated 26 duplicates (~7 MB) against the storage quota.
+          retention-days: 7
 
       # Fixed tag "latest" so the download URL stays stable across pushes:
       # https://github.com/alphafoxai/alphafox-auth-extension/releases/latest/download/alphafox-auth-extension.zip
