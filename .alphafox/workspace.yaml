@@ -1,7 +1,7 @@
 schemaVersion: 1
 workspace:
   repository: alphafoxai/alphafox-workspace
-  revision: 0719e065cc06bd71076db6325186081a056aafe4
+  revision: 5d3efbbed67cb96bc3e4d044a89acd4423a177b0
 project: auth-extension
 kind: component
 

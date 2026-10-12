@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: alphafoxai/alphafox-workspace
-          ref: 0719e065cc06bd71076db6325186081a056aafe4
+          ref: 5d3efbbed67cb96bc3e4d044a89acd4423a177b0
           path: .alphafox/workspace
           token: ${{ secrets.ALPHAFOX_WORKSPACE_READ_TOKEN }}
           persist-credentials: false
@@ -65,8 +65,8 @@ jobs:
       - name: Verify workspace pin and Auth Extension registry identity
         run: |
           set -euo pipefail
-          test "$(git -C .alphafox/workspace rev-parse HEAD)" = 0719e065cc06bd71076db6325186081a056aafe4
-          grep -Fqx '  revision: 0719e065cc06bd71076db6325186081a056aafe4' .alphafox/workspace.yaml
+          test "$(git -C .alphafox/workspace rev-parse HEAD)" = 5d3efbbed67cb96bc3e4d044a89acd4423a177b0
+          grep -Fqx '  revision: 5d3efbbed67cb96bc3e4d044a89acd4423a177b0' .alphafox/workspace.yaml
           grep -Fqx 'project: auth-extension' .alphafox/workspace.yaml
           grep -Fqx '  repository: alphafoxai/alphafox-workspace' .alphafox/workspace.yaml
           test -f .alphafox/workspace.yaml
