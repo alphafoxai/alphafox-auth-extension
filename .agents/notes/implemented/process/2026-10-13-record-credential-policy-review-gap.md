@@ -15,6 +15,7 @@ This repository keeps `PRIVACY.md` and the Bitget preflight unchanged.
 The pending review lives in [`docs/credential-policy-review.md`](../../../../docs/credential-policy-review.md).
 Joe remains the source and `PRIVACY.md` author to contact; privacy-text changes still need the published contact `support@alphafox.app` and an explicit legal approval.
 The new review deadline is `2026-11-12`, independent of the archive dates `2026-10-07` / `2026-11-06`.
+Tracking issue: [alphafox-auth-extension#21](https://github.com/alphafoxai/alphafox-auth-extension/issues/21).
 
 ## Alternatives considered
 

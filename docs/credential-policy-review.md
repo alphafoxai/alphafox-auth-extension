@@ -21,6 +21,7 @@ This 2026-10-13 re-review does not inherit the archive deadline and does not kee
 
 `2026-11-12` is a new review deadline set on 2026-10-13.
 It is not the archive expiry `2026-11-06`.
+Tracking issue: [`alphafox-auth-extension#21`](https://github.com/alphafoxai/alphafox-auth-extension/issues/21).
 
 ## Still-valid discrepancy
 
