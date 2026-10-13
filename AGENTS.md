@@ -40,6 +40,10 @@ This repository owns the extension source, tests, generated package inputs, and 
 implementation documents. `alphafox-infra` owns deployment facts. The workspace owns
 shared DSH governance and cross-repository decisions.
 
+Pending privacy and request-behavior review lives in
+[`docs/credential-policy-review.md`](docs/credential-policy-review.md).
+That page is not a compliance approval and does not authorize edits to `PRIVACY.md`.
+
 ## Agent skills
 
 ### Issue tracker
