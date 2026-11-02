@@ -97,16 +97,56 @@ try {
     /空响应/
   );
 
-  // preflight success
-  await mod.assertBitgetSessionStillValid(
-    JSON.stringify({
-      bt_newsessionid: "session",
-      bt_rtoken: "token",
-    }),
-    async () =>
-      new Response(JSON.stringify({ code: "00000", msg: "success" }), {
-        status: 200,
-      })
+  const sessionCredential = JSON.stringify({
+    bt_newsessionid: "session",
+    bt_rtoken: "token",
+  });
+
+  // preflight sends the JSON object Bitget requires; without it an
+  // authenticated session gets HTTP 400 with an empty body.
+  let sentBody;
+  await mod.assertBitgetSessionStillValid(sessionCredential, async (_url, init) => {
+    sentBody = init?.body;
+    return new Response(JSON.stringify({ code: "200", data: {}, params: {} }), {
+      status: 200,
+    });
+  });
+  assert.equal(sentBody, "{}");
+
+  // codes that prove an authenticated session
+  for (const code of ["00000", "200", "user_not_trader_limit_operate"]) {
+    await mod.assertBitgetSessionStillValid(
+      sessionCredential,
+      async () =>
+        new Response(JSON.stringify({ code, msg: "x" }), { status: 200 })
+    );
+  }
+
+  // a session-proving code on an HTTP error is still a failure
+  await assert.rejects(
+    () =>
+      mod.assertBitgetSessionStillValid(
+        sessionCredential,
+        async () =>
+          new Response(JSON.stringify({ code: "200", data: {} }), {
+            status: 400,
+          })
+      ),
+    /code=200/
+  );
+
+  // missing session
+  await assert.rejects(
+    () =>
+      mod.assertBitgetSessionStillValid(
+        sessionCredential,
+        async () =>
+          new Response(
+            JSON.stringify({ code: "00005", msg: "Token does not exist" }),
+            { status: 200 }
+          )
+      ),
+    /过期/
   );
 
   console.log("bitget-credential-validation: ok");

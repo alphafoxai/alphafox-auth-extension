@@ -1,11 +1,25 @@
 /**
  * Local Bitget session preflight + humanized auth errors.
- * Mirrors signal-center ValidatePortfolioOverview so the popup fails with an
- * actionable message before the backend returns opaque EOF / resolve metadata.
+ * Mirrors signal-center ValidatePortfolioOverview
+ * (alphafox-signal-center internal/exchange/bitget/client.go) so the popup fails
+ * with an actionable message before the backend returns opaque EOF / resolve
+ * metadata. Keep the request body and accepted codes in step with it.
  */
 
 const BITGET_PORTFOLIO_OVERVIEW_URL =
   "https://www.bitget.com/v1/trigger/uta/portfolio/getPortfolioOverview";
+
+/**
+ * HTTP 200 codes that prove the cookies authenticated: a missing or expired
+ * session gets 00005 / 00004 instead. "200" is the overview of an authenticated
+ * account (observed 2026-11-02); "user_not_trader_limit_operate" is an
+ * authenticated non-elite account. "00000" is Bitget's generic success code.
+ */
+const SESSION_PROVEN_CODES: ReadonlySet<string> = new Set([
+  "00000",
+  "200",
+  "user_not_trader_limit_operate",
+]);
 
 const DEFAULT_USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
@@ -76,6 +90,9 @@ export async function assertBitgetSessionStillValid(
         referer: "https://www.bitget.com/",
         cookie: `bt_newsessionid=${auth.sessionId}; bt_rtoken=${auth.rToken}`,
       },
+      // Bitget answers an authenticated request without a body with HTTP 400
+      // and an empty body; the endpoint requires a JSON object.
+      body: "{}",
       // Extension host fetches; cookies header is explicit (not document cookies).
       cache: "no-store",
     });
@@ -90,7 +107,7 @@ export async function assertBitgetSessionStillValid(
   const text = await response.text();
   if (!text.trim()) {
     throw new Error(
-      `Bitget 登录态无效（HTTP ${response.status}，空响应）。请重新登录 www.bitget.com 后再同步；不要只粘贴 JWT。`
+      `Bitget 校验返回空响应（HTTP ${response.status}），无法确认登录态。请刷新 www.bitget.com 确认已登录后再同步。`
     );
   }
 
@@ -105,7 +122,7 @@ export async function assertBitgetSessionStillValid(
 
   const code = body.code == null ? "" : String(body.code);
   const msg = typeof body.msg === "string" ? body.msg : "";
-  if (code === "00000") {
+  if (response.ok && SESSION_PROVEN_CODES.has(code)) {
     return;
   }
 
