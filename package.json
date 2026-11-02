@@ -1,6 +1,6 @@
 {
   "name": "alphafox-auth-extension",
-  "version": "2.4.0",
+  "version": "2.4.1",
   "description": "AlphaFox exchange cookie authentication sync extension",
   "type": "module",
   "packageManager": "pnpm@9.0.0",
@@ -10,7 +10,7 @@
     "build": "tsc && vite build",
     "dev": "tsc && vite build --watch",
     "check": "tsc --noEmit",
-    "test": "node scripts/test-popup-regression.mjs && node scripts/test-fomo-capture.mjs",
+    "test": "node scripts/test-popup-regression.mjs && node scripts/test-fomo-capture.mjs && node scripts/test-bitget-credential-validation.mjs",
     "test:fomo": "node scripts/test-fomo-capture.mjs",
     "zip": "rm -f alphafox-auth-extension.zip && cd dist && zip -r ../alphafox-auth-extension.zip . -x '*.DS_Store' && cd .."
   },
